@@ -1,10 +1,9 @@
-import { Room } from "./Room";
-import { Logger } from "../helpers/consoleHelpers";
-import { VERSION } from "../clusterfun_server_main";
-import { generateRoomCode, generatePersonalId, generatePersonalSecret } from "../helpers/id-codes";
-import { GameInstanceProperties } from "../libs/config/GameInstanceProperties";
-import { ClusterFunJoinMessage } from "../libs/comms";
-
+import { Room } from "./Room.js";
+import { Logger } from "../helpers/consoleHelpers.js";
+import { version as VERSION } from "../version.js";
+import { generateRoomCode, generatePersonalId, generatePersonalSecret } from "../helpers/id-codes.js";
+import { GameInstanceProperties } from "../libs/config/GameInstanceProperties.js";
+import { ClusterFunJoinMessage } from "../libs/comms/index.js";
 
 interface ExistingRoomInfo {
     id: string

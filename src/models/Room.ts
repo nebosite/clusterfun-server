@@ -1,17 +1,14 @@
 import * as crypto from 'crypto';
-import * as ws from 'ws';
-import { Logger } from "../helpers/consoleHelpers";
-import { ClusterFunMessageBase, ClusterFunSerializer } from '../libs/comms';
-import { ServerModel } from "./ServerModel";
-
-// Hack because the server uses Node v10
-export const theTextEncoder = require("util").TextEncoder; 
+import { WebSocket } from 'ws';
+import { Logger } from "../helpers/consoleHelpers.js";
+import { ClusterFunMessageBase, ClusterFunSerializer } from '../libs/comms/index.js';
+import { ServerModel } from "./ServerModel.js";
 
 export interface Endpoint {
     id: string;
     secret: string;
     name: string;
-    socket?: ws;
+    socket?: WebSocket;
 }
 
 const ONE_HOUR = 3600 * 1000
@@ -83,7 +80,7 @@ export class Room {
     //------------------------------------------------------------------------------------------
     // setSocket
     //------------------------------------------------------------------------------------------
-    setSocket(id: string, allegedSecret: string, socket: ws) {
+    setSocket(id: string, allegedSecret: string, socket: WebSocket) {
         const endpoint = this.endpoints.get(id);
         if(!endpoint) {
             throw new Error(`setSocket couldn't find player with id ${id}, in room ${this.id}`);

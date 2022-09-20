@@ -1,7 +1,7 @@
-import ClusterFunSerializer from "./ClusterFunSerializer";
+import ClusterFunSerializer from "./ClusterFunSerializer.js";
 import { expect } from "chai";
-import { ClusterFunMessageBase } from "..";
-import ClusterFunMessageHeader from "../message_parts/ClusterFunMessageHeader";
+import { ClusterFunMessageBase } from "../ClusterFunMessage.js";
+import ClusterFunMessageHeader from "../message_parts/ClusterFunMessageHeader.js";
 
 /**
  * A test receiver ID - 12 characters to match the IDs we generate

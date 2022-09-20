@@ -3,21 +3,22 @@
   "version": "0.1.7",
   "description": "Central server for clusterfun",
   "main": "dist/clusterfun_server_main.js",
+  "type": "module",
   "scripts": {
     "startdev": "env-cmd -f ./env.dev nodemon src/clusterfun_server_main.ts",
-    "start": "genversion src/version.js && node dist/clusterfun_server_main.js",
-    "build": "genversion src/version.js && tsc",
-    "test": "nyc ./node_modules/mocha/bin/mocha dist/**/*.spec.js"
+    "start": "genversion --es6 src/version.js && node dist/clusterfun_server_main.js",
+    "build": "genversion --es6 src/version.js && tsc",
+    "test": "nyc ./node_modules/mocha/bin/_mocha dist/**/*.spec.js"
   },
   "author": "Eric Jorgensen",
   "license": "ISC",
   "dependencies": {
     "@streamparser/json": "^0.0.8",
     "body-parser": "^1.19.0",
-    "chalk": "^4.1.0",
+    "chalk": "^5.0.1",
     "express": "^4.17.1",
-    "express-ws": "^4.0.0",
-    "ws": "^7.3.0"
+    "express-ws": "^5.0.2",
+    "ws": "^8.8.1"
   },
   "devDependencies": {
     "@types/chai": "^4.3.3",
@@ -33,6 +34,6 @@
     "nodemon": "^2.0.4",
     "nyc": "^15.1.0",
     "ts-node": "^10.3.0",
-    "typescript": "^3.9.5"
+    "typescript": "^4.8.3"
   }
 }

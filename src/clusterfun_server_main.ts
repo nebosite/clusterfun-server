@@ -1,10 +1,12 @@
 import express from 'express';
 import express_ws from 'express-ws';
 import * as path from 'path';
-import { ClusterFunEventType, ServerModel } from './models/ServerModel';
+import { fileURLToPath } from 'url';
+import { ClusterFunEventType, ServerModel } from './models/ServerModel.js';
 import bodyParser from "body-parser";
-import { Logger } from './helpers/consoleHelpers';
-import { ApiHandler } from './apis/ApiHandlers';
+import { Logger } from './helpers/consoleHelpers.js';
+import { ApiHandler } from './apis/ApiHandlers.js';
+import { version as VERSION } from './version.js';
 
 const logger = new Logger();
 
@@ -13,7 +15,6 @@ const logger = new Logger();
 // ---------------------------------------------------------------------------------
 let portOverride = 8080;
 if(process.env.PORT_OVERRIDE) portOverride = Number.parseInt(process.env.PORT_OVERRIDE)
-export const VERSION = require('./version');
 export const StartTime = Date.now();
 
 let killPath: string | undefined;
@@ -74,9 +75,13 @@ app_ws.app.ws('/talk/:roomId/:personalId', api.handleSocket);
 // ---------------------------------------------------------------------------------
 // Lobby setup
 // ---------------------------------------------------------------------------------
-const clientPath = process.env.ISDEV 
-    ? "../../../frontend/build"
-    : "client"
+// NOTE: This previously fetched "../../../frontend/build" in a production environment.
+// The deploy system should instead either deploy the frontend and games to this
+// "client" folder in dist, or the server should determine the path to the lobby from
+// a manifest file
+const clientPath = "client"
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const lobbyRoot = path.join(__dirname, clientPath);
 
 logger.logLine("Serving the lobby from " + lobbyRoot);

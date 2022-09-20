@@ -1,7 +1,7 @@
-import { Logger } from "../helpers/consoleHelpers";
-import { ServerModel } from "../models/ServerModel";
+import { Logger } from "../helpers/consoleHelpers.js";
+import { ServerModel } from "../models/ServerModel.js";
 import { Request, Response } from "express";
-import * as ws from 'ws';
+import { WebSocket } from 'ws';
 
 const CLOSECODE_POLICY_VIOLATION = 1008;
 const CLOSECODE_WRONG_DATA = 1003;
@@ -116,7 +116,7 @@ export class ApiHandler {
     //--------------------------------------------------------------------------------------
     // 
     //--------------------------------------------------------------------------------------
-    handleSocket = (ws: ws, req: Request)  =>{
+    handleSocket = (ws: WebSocket, req: Request)  =>{
         if (!(WEBSOCKET_PROTOCOL_HEADER in req.headers)) {
             // there is no secret - close it pls
             this.logger.logLine('Got socket connection with no protocol header');

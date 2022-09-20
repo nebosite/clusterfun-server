@@ -1,10 +1,8 @@
-import ClusterFunMessageHeader from "../message_parts/ClusterFunMessageHeader";
-import { ClusterFunMessageConstructor } from "./ClusterFunMessageConstructor";
-import { RawMessagePacket } from "../message_parts/RawMessagePacket";
+import ClusterFunMessageHeader from "../message_parts/ClusterFunMessageHeader.js";
+import { ClusterFunMessageConstructor } from "./ClusterFunMessageConstructor.js";
+import { RawMessagePacket } from "../message_parts/RawMessagePacket.js";
 import { JSONParser } from '@streamparser/json';
-
-
-import { ClusterFunMessageBase } from "../ClusterFunMessage";
+import { ClusterFunMessageBase } from "../ClusterFunMessage.js";
 
 /**
  * The maximum length in characters for the header. Larger headers allow longer type names

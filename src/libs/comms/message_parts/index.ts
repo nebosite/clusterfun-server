@@ -1,2 +1,2 @@
-export * from './ClusterFunMessageHeader';
-export * from './RawMessagePacket';
+export * from './ClusterFunMessageHeader.js';
+export * from './RawMessagePacket.js';
