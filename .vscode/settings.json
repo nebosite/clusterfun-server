@@ -1,0 +1,4 @@
+{
+    "appService.defaultWebAppToDeploy": "/subscriptions/d7af7388-76a4-4501-8da8-b2cd5eca29c1/resourceGroups/clusterfun-rg/providers/Microsoft.Web/sites/clusterfun",
+    "appService.deploySubpath": ""
+}
