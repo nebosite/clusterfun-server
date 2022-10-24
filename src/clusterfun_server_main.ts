@@ -70,6 +70,8 @@ app.post("/api/startgame", api.startGame);
 app.post("/api/joingame", api.joinGame);
 app.post("/api/terminategame", api.terminateGame);
 app.get("/api/am_i_healthy", api.showHealth);
+app.get("/api/game_manifest", api.getGameManifest);
+
 app_ws.app.ws('/talk/:roomId/:personalId', api.handleSocket);
 
 // ---------------------------------------------------------------------------------

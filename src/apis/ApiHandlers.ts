@@ -46,6 +46,23 @@ export class ApiHandler {
     //--------------------------------------------------------------------------------------
     // 
     //--------------------------------------------------------------------------------------
+    getGameManifest = (req: Request, res: Response) => {
+
+        const games = [
+            {
+                name: "A game",
+                logoName: "/games/testgame/static/media/Logo.5c81a252fab53508bfa4.png",
+                tags: [],
+                codeUrl: "http://localhost:8080/games/testgame/static/js/main.1399c1cc.js"
+            }
+        ]
+
+        res.end(JSON.stringify(games,null,2));
+    };
+
+    //--------------------------------------------------------------------------------------
+    // 
+    //--------------------------------------------------------------------------------------
     startGame = (req: Request, res: Response) => {
 
         if (!req.body) {
