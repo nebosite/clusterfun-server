@@ -8,6 +8,8 @@ import { Logger } from './helpers/consoleHelpers.js';
 import { ApiHandler } from './apis/ApiHandlers.js';
 import { version as VERSION } from './version.js';
 
+const isDev = process.env.ISDEV === "1"
+
 const logger = new Logger();
 
 // ---------------------------------------------------------------------------------
@@ -81,7 +83,7 @@ app_ws.app.ws('/talk/:roomId/:personalId', api.handleSocket);
 // The deploy system should instead either deploy the frontend and games to this
 // "client" folder in dist, or the server should determine the path to the lobby from
 // a manifest file
-const clientPath = "client"
+const clientPath = isDev ? "../../clusterfun-client/build" : "client"
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const lobbyRoot = path.join(__dirname, clientPath);

@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "startdev": "genversion --es6 src/version.js && env-cmd -f env.dev node --experimental-specifier-resolution=node --loader ts-node/esm src/clusterfun_server_main.ts",
-    "startdev_old": "env-cmd -f ./env.dev nodemon src/clusterfun_server_main.ts",
+    "startdev_old": "genversion --es6 src/version.js && env-cmd -f ./env.dev nodemon src/clusterfun_server_main.ts",
     "start": "genversion --es6 src/version.js && node dist/clusterfun_server_main.js",
     "build": "genversion --es6 src/version.js && tsc",
     "test": "nyc ./node_modules/mocha/bin/_mocha dist/**/*.spec.js"
