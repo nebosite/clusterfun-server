@@ -81,7 +81,7 @@ app_ws.app.ws('/talk/:roomId/:personalId', api.handleSocket);
 // The deploy system should instead either deploy the frontend and games to this
 // "client" folder in dist, or the server should determine the path to the lobby from
 // a manifest file
-const clientPath = "client"
+const clientPath = process.env.CLUSTERFUN_DEV_CLIENT_PATH ?? "client"
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const lobbyRoot = path.join(__dirname, clientPath);

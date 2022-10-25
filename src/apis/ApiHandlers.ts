@@ -9,6 +9,28 @@ const CLOSECODE_WRONG_DATA = 1003;
 const WEBSOCKET_PROTOCOL_HEADER = 'sec-websocket-protocol';
 const SECRET_PREFIX = 'Secret';
 
+// ---------------------------------------------------------------------------------
+// UserError - throw a UserError if you want the error text to make it back to the user
+// ---------------------------------------------------------------------------------
+export class UserError {
+    message:string; 
+    constructor(message: string)
+    {
+        this.message = message;
+    }
+}
+
+// ---------------------------------------------------------------------------------
+// AuthorizationError - throw an AuthorizationError for auth problems
+// ---------------------------------------------------------------------------------
+export class AuthorizationError {
+    message:string; 
+    constructor(message: string)
+    {
+        this.message = message;
+    }
+}
+
 export class ApiHandler {
     serverModel: ServerModel
     logger: Logger
@@ -24,110 +46,101 @@ export class ApiHandler {
     //--------------------------------------------------------------------------------------
     // 
     //--------------------------------------------------------------------------------------
-    serverError(res: Response, err: any, errorType: string) {
-        this.serverModel.reportError(errorType)
-        const key = Date.now();
-        this.logger.logError(`API Error: key: ${key} :${err as any}`);
-        res.status(400).end(`Server error.  Key = ${key} `);
+    async safeCall(req: Request, res: Response, label: string, runMe: () => Promise<any>) {
+        try {
+            const data = await runMe();
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify(data, null, 2));
+        }
+        catch(err) {
+            if(err instanceof UserError){
+                const errorResponse = {
+                    errorMessage: (err as UserError).message   
+                }
+                res.status(400).end(JSON.stringify(errorResponse, null, 2))
+            }
+            else {
+                const timecode = Date.now();
+                this.logger.logError(`Error at timecode ${timecode} on ${label}: ${err} ${JSON.stringify(err)}`)
+                const errorResponse = {
+                    errorMessage: `There was a server error in ${label}.  Reference timecode ${timecode}`   
+                }
+                res.status(500).end(JSON.stringify(errorResponse, null, 2))
+            }
+        }
     }
 
     //--------------------------------------------------------------------------------------
     // 
     //--------------------------------------------------------------------------------------
     showHealth = (req: Request, res: Response) => {
+        this.safeCall(req, res, "ShowHealth", async () => {
+            let span = req.query.span ? Number.parseInt(req.query.span as string) : 60000;
+            let latest = req.query.latest ? Date.parse(req.query.latest as string) : Date.now();
+            let earliest = req.query.earliest ? Date.parse(req.query.earliest as string) : 0;
 
-        let span = req.query.span ? Number.parseInt(req.query.span as string) : 60000;
-        let latest = req.query.latest ? Date.parse(req.query.latest as string) : Date.now();
-        let earliest = req.query.earliest ? Date.parse(req.query.earliest as string) : 0;
-
-        res.end(JSON.stringify(this.serverModel.getHealthData(earliest, span, latest), null,2));
+            return this.serverModel.getHealthData(earliest, span, latest);
+        })        
     };
 
     //--------------------------------------------------------------------------------------
     // 
     //--------------------------------------------------------------------------------------
     getGameManifest = (req: Request, res: Response) => {
-
-        const games = [
-            {
-                name: "A game",
-                logoName: "/games/testgame/static/media/Logo.5c81a252fab53508bfa4.png",
-                tags: [],
-                codeUrl: "http://localhost:8080/games/testgame/static/js/main.1399c1cc.js"
-            }
-        ]
-
-        res.end(JSON.stringify(games,null,2));
+        this.safeCall(req, res, "GetGameManifest", async () => {
+            return [ { name: "Testato", displayName: "Hamburger", tags: ["debug"], } ]
+        })        
     };
 
     //--------------------------------------------------------------------------------------
     // 
     //--------------------------------------------------------------------------------------
     startGame = (req: Request, res: Response) => {
-
-        if (!req.body) {
-            res.status(400).end("Missing body");
-            return;
-        }
-    
-        try {
+        this.safeCall(req, res, "StartGame", async () => {
+            if (!req.body) {
+                throw new UserError("Missing Body for Start Game")
+            }
+        
             const { gameName, existingRoom } = req.body;
             if(existingRoom) {
-                this.logger.logLine(`Exisintg room specified: ${JSON.stringify(existingRoom)}`)
+                this.logger.logLine(`Existing room specified: ${JSON.stringify(existingRoom)}`)
             }
             const roomProperties = this.serverModel.startGame(gameName, existingRoom);
     
-            res.end(JSON.stringify(roomProperties));
-        }
-        catch (err)
-        {
-            this.serverError(res, err, "startGame")
-            return;
-        }
+            return roomProperties;
+        })
     };
 
     //--------------------------------------------------------------------------------------
     // 
     //--------------------------------------------------------------------------------------
     joinGame = (req: Request, res: Response) => {
-        if (!req.body) {
-            res.status(400).end("Pls snd body");
-            return;
-        }
-    
-        try {
+        this.safeCall(req, res, "JoinGame", async () => {
+            if (!req.body) {
+                throw new UserError("Missing Body for Join Game")
+            }
+        
             const { roomId, playerName } = req.body;
             const roomProperties = this.serverModel.joinGame(roomId, playerName);
 
-            res.end(JSON.stringify(roomProperties));
-            return;
-        } 
-        catch (err)
-        {
-            this.serverError(res, err, "roomJoinError")
-            return;
-        }
+            return roomProperties;
+        })
     }
 
     //--------------------------------------------------------------------------------------
     // 
     //--------------------------------------------------------------------------------------
     terminateGame = (req: Request, res: Response) => {
-
-        if (!req.body) {
-            res.status(400).end("IIIIIII ain't go no body");
-            return;
-        }
-    
-        try {
+        this.safeCall(req, res, "TerminateGame", async () => {
+            if (!req.body) {
+                throw new UserError("Missing Body for Terminate Game")
+            }
+        
             const { roomId, presenterSecret } = req.body;   
             this.serverModel.clearRoom(roomId, presenterSecret); 
-            res.end(JSON.stringify({message: "OK"}));
-        }
-        catch (err)
-        {
-            this.serverError(res, err, "terminateGame")
-        }
+
+            return {message: "OK"};
+        })
     };
 
     //--------------------------------------------------------------------------------------
