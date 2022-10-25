@@ -65,7 +65,7 @@ export class ApiHandler {
                 const errorResponse = {
                     errorMessage: `There was a server error in ${label}.  Reference timecode ${timecode}`   
                 }
-                res.status(400).end(JSON.stringify(errorResponse, null, 2))
+                res.status(500).end(JSON.stringify(errorResponse, null, 2))
             }
         }
     }
