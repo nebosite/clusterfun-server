@@ -149,7 +149,7 @@ export default class ClusterFunSerializer {
      * @returns The ClusterFunMessageHeader of the message
      */
     deserializeHeaderOnly(input: string): ClusterFunMessageHeader {
-        return this.deserializePartsInternal(input.substring(0, MAX_HEADER_LENGTH), false).header;
+        return this.deserializePartsInternal(input.substring(0, MAX_HEADER_LENGTH + 4), false).header;
     }
 
     /**
@@ -170,7 +170,7 @@ export default class ClusterFunSerializer {
             throw new SyntaxError(`Header too long: actual length ${headerString.length}, expected maximum ${MAX_HEADER_LENGTH}`);
         }
         const payloadString = JSON.stringify(input.payload);
-        return headerString + payloadString;
+        return headerString + "^" + payloadString;
     }
 
     private deserializeParts(input: string): RawMessagePacket<unknown> {
@@ -178,20 +178,16 @@ export default class ClusterFunSerializer {
     }
 
     private deserializePartsInternal(input: string, includePayload: boolean): RawMessagePacket<unknown>{
-        const splitLocation = input.indexOf("}^{") + 1;
-        if(splitLocation < 0) throw("Deserialize failure: Could not find header split")
+        const splitLocation = input.indexOf("}^{");
+        if(splitLocation < 0) throw Error("Deserialize failure: Could not find header split")
 
-        const header = JSON.parse(input.substring(0,splitLocation)) as ClusterFunMessageHeader
+        const header = JSON.parse(input.substring(0,splitLocation+1)) as ClusterFunMessageHeader
         if(!header.r) throw Error("Message header missing receiver")
         if(!header.s) throw Error("Message header missing sender")
         if(!header.t) throw Error("Message header missing type")
         const payload = includePayload 
-            ? input.substring(splitLocation+1)
+            ? JSON.parse(input.substring(splitLocation+2))
             : null
-
-        if (payload === undefined) {
-            throw new SyntaxError("Payload not provided");
-        }
 
         return {
             header,
