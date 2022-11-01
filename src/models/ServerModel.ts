@@ -4,6 +4,9 @@ import { version as VERSION } from "../version.js";
 import { generateRoomCode, generatePersonalId, generatePersonalSecret } from "../helpers/id-codes.js";
 import { GameInstanceProperties } from "../libs/config/GameInstanceProperties.js";
 import { ClusterFunJoinMessage } from "../libs/comms/index.js";
+import os from 'os';
+
+const cores = os.cpus();
 
 interface ExistingRoomInfo {
     id: string
@@ -50,12 +53,27 @@ export class ServerModel {
     summarySegment = new Map<string,{count: number, sum: number}>();
     get activeRoomCount() {return this.rooms.size}
 
+    private _trackedUsage = {user: 0, system:0}
+
     //------------------------------------------------------------------------------------------
     // ctor
     //------------------------------------------------------------------------------------------
     constructor(logger: Logger)
     {
         this.logger = logger;
+
+        let lastUsage = process.cpuUsage()
+        const secondsPerInterval = 2;
+        setInterval(() => {
+            const currentUsage = process.cpuUsage(lastUsage)
+            const divisor = (secondsPerInterval * 1000000.0 * cores.length)
+            const newUser = currentUsage.user/divisor;
+            const newSystem = currentUsage.system/divisor;
+            this._trackedUsage.user = this._trackedUsage.user * .8 + newUser * .2;
+            this._trackedUsage.system = this._trackedUsage.system * .8 + newSystem * .2;
+            lastUsage = currentUsage;
+            console.log(`Usage ${this._trackedUsage.user.toFixed(2)} ${this._trackedUsage.system.toFixed(2)}`)
+        },secondsPerInterval * 1000)
     }
 
     //--------------------------------------------------------------------------------------
@@ -178,6 +196,8 @@ export class ServerModel {
             rooms: currentRoomSummary,
             summary: Array.from(this.summarySegment.keys()).map(sk => ({label: sk, data: this.summarySegment.get(sk)!})),
             series,
+            cpuUsage: this._trackedUsage,
+            memoryUsage: process.memoryUsage()
         };
     }
 
