@@ -72,7 +72,6 @@ export class ServerModel {
             this._trackedUsage.user = this._trackedUsage.user * .8 + newUser * .2;
             this._trackedUsage.system = this._trackedUsage.system * .8 + newSystem * .2;
             lastUsage = currentUsage;
-            console.log(`Usage ${this._trackedUsage.user.toFixed(2)} ${this._trackedUsage.system.toFixed(2)}`)
         },secondsPerInterval * 1000)
     }
 
