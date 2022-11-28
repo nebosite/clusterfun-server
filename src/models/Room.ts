@@ -1,7 +1,7 @@
 import * as crypto from 'crypto';
 import { WebSocket } from 'ws';
 import { Logger } from "../helpers/consoleHelpers.js";
-import { ClusterFunMessageBase, ClusterFunSerializer } from '../libs/comms/index.js';
+import ClusterFunMessageHeader from '../libs/comms/ClusterFunMessageHeader.js';
 import { ServerModel } from "./ServerModel.js";
 
 export interface Endpoint {
@@ -11,6 +11,11 @@ export interface Endpoint {
     socket?: WebSocket;
 }
 
+// Regex for finding the message header.
+// The header is a JSON object never containing the ^ character,
+// followed by a ^ character. The Regex captures the JSON object
+// as "header"
+const MESSAGE_HEADER_REGEX = /^(?<header>{[^^]*})\^/;
 const ONE_HOUR = 3600 * 1000
 
 //------------------------------------------------------------------------------------------
@@ -22,7 +27,6 @@ export class Room {
     presenterId: string;
     game: string;
     lastMessageTime = Date.now();
-    serializer: ClusterFunSerializer;
     logger: Logger
     idle = false;
     serverModel: ServerModel
@@ -43,7 +47,6 @@ export class Room {
         this.game = game;
         this.presenterId = presenterId;
         this.endpoints = new Map<string, Endpoint>();
-        this.serializer = new ClusterFunSerializer();
         this.addEndpoint(presenterId, presenterSecret, 'presenter');
     }
 
@@ -106,21 +109,17 @@ export class Room {
     // sendMessage
     //------------------------------------------------------------------------------------------
     receiveMessage(sender: string, message: string) {
-        
-        const header = this.serializer.deserializeHeaderOnly(message);
+        this.logger.logLine("Received message: " + message)
+        const headerMatch = message.match(MESSAGE_HEADER_REGEX);
+        if (!headerMatch) {
+            throw new Error("Received a message with an invalid header");
+        }
+        // Deserialize the header from the header string
+        const header = JSON.parse(headerMatch.groups!["header"]) as ClusterFunMessageHeader;
         if (header.s !== sender) {
             throw new Error("Sender " + sender + " included non-matching sender " + header.s);
         }
         this.sendMessageInternal(header.r, sender, message);
-    }
-
-    //------------------------------------------------------------------------------------------
-    // sendMessage
-    //------------------------------------------------------------------------------------------
-    sendMessage(receiver: string, sender: string, message: ClusterFunMessageBase)
-    {
-        const serializedMessage = this.serializer.serialize(receiver, sender, message);
-        this.sendMessageInternal(receiver, sender, serializedMessage);
     }
 
     //------------------------------------------------------------------------------------------
