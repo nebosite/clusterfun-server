@@ -64,15 +64,19 @@ export class ServerModel {
 
         let lastUsage = process.cpuUsage()
         const secondsPerInterval = 2;
+        const divisor = (secondsPerInterval * 1000000.0 * cores.length)
         setInterval(() => {
-            const currentUsage = process.cpuUsage(lastUsage)
-            const divisor = (secondsPerInterval * 1000000.0 * cores.length)
-            const newUser = currentUsage.user/divisor;
-            const newSystem = currentUsage.system/divisor;
-            this._trackedUsage.user = this._trackedUsage.user * .8 + newUser * .2;
-            this._trackedUsage.system = this._trackedUsage.system * .8 + newSystem * .2;
+            let currentUsage = process.cpuUsage()
+            const deltaUsage = {
+                user: currentUsage.user - lastUsage.user, 
+                system: currentUsage.system - lastUsage.system}
+            const newUser = deltaUsage.user/divisor;
+            const newSystem = deltaUsage.system/divisor;
+            this._trackedUsage.user = this._trackedUsage.user * .3 + newUser * .7;
+            this._trackedUsage.system = this._trackedUsage.system * .3 + newSystem * .7;
             lastUsage = currentUsage;
         },secondsPerInterval * 1000)
+
     }
 
     //--------------------------------------------------------------------------------------
