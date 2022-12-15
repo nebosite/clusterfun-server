@@ -3,7 +3,6 @@ import { Logger } from "../helpers/consoleHelpers.js";
 import { version as VERSION } from "../version.js";
 import { generateRoomCode, generatePersonalId, generatePersonalSecret } from "../helpers/id-codes.js";
 import { GameInstanceProperties } from "../libs/config/GameInstanceProperties.js";
-import { ClusterFunJoinMessage } from "../libs/comms/index.js";
 import os from 'os';
 
 const cores = os.cpus();
@@ -343,11 +342,7 @@ export class ServerModel {
             throw new Error("Join missing game");
         }
 
-        room.addEndpoint(playerId, playerSecret, name);
-
-        // Let the presenter know that the room was joined by this player
-        const joinMessage = new ClusterFunJoinMessage({ sender: playerId, name, messageId: 0 });
-        room.sendMessage(room.presenterId, playerId, joinMessage);
+        room.addEndpoint(playerId, playerSecret, name);        
 
         return room;
     }
