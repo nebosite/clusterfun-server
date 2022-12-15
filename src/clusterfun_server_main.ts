@@ -7,6 +7,7 @@ import bodyParser from "body-parser";
 import { Logger } from './helpers/consoleHelpers.js';
 import { ApiHandler } from './apis/ApiHandlers.js';
 import { version as VERSION } from './version.js';
+import vhost from 'vhost';
 
 const logger = new Logger();
 
@@ -37,9 +38,12 @@ logger.logLine("## Starting ClusterFun Server  v" + VERSION)
 // Set up models and base logic
 // ---------------------------------------------------------------------------------
 const app = express();
-const app_ws = express_ws(app);
+const clusterFunApp = express();
+const clusterFunApp_ws = express_ws(clusterFunApp);
 const serverModel = new ServerModel(logger);
 const api = new ApiHandler(serverModel, logger);
+const handsHighApp = express();
+
 
 // ---------------------------------------------------------------------------------
 // Special request handling
@@ -47,15 +51,15 @@ const api = new ApiHandler(serverModel, logger);
 if(killPath) {
     // Set up kill path as first processor.  Invoking the server with the killpath
     // specified allows testing logic to easily start and stop the server during tests
-    app.get("/" + killPath, (req, res) => {
+    clusterFunApp.get("/" + killPath, (req, res) => {
         logger.logLine("Server was killed with killpath")
         res.end("Arrrgh!")
         process.exit(0);
     });
 }
 
-app.use(bodyParser.json());
-app.use(function(req, res, next) {
+clusterFunApp.use(bodyParser.json());
+clusterFunApp.use(function(req, res, next) {
     if(req.url.length < 2) {
         serverModel.logEvent(ClusterFunEventType.GetRequest, undefined, "ROOT")
     }
@@ -63,16 +67,22 @@ app.use(function(req, res, next) {
     next();
 });  
 
+handsHighApp.use(bodyParser.json());
+handsHighApp.use(function(req, res, next) {
+    logger.logLine(`HH Request: ${req.method}: ` + req.url)
+    next();
+});  
+
 // ---------------------------------------------------------------------------------
 // REST APIs / socket apis
 // ---------------------------------------------------------------------------------
-app.post("/api/startgame", api.startGame);
-app.post("/api/joingame", api.joinGame);
-app.post("/api/terminategame", api.terminateGame);
-app.get("/api/am_i_healthy", api.showHealth);
-app.get("/api/game_manifest", api.getGameManifest);
+clusterFunApp.post("/api/startgame", api.startGame);
+clusterFunApp.post("/api/joingame", api.joinGame);
+clusterFunApp.post("/api/terminategame", api.terminateGame);
+clusterFunApp.get("/api/am_i_healthy", api.showHealth);
+clusterFunApp.get("/api/game_manifest", api.getGameManifest);
 
-app_ws.app.ws('/talk/:roomId/:personalId', api.handleSocket);
+clusterFunApp_ws.app.ws('/talk/:roomId/:personalId', api.handleSocket);
 
 // ---------------------------------------------------------------------------------
 // Lobby setup
@@ -86,13 +96,27 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const lobbyRoot = path.join(__dirname, clientPath);
 
-logger.logLine("Serving the lobby from " + lobbyRoot);
 
-app.get('', (req, res) => {
+logger.logLine("Serving the Clusterfun from " + lobbyRoot);
+clusterFunApp.get('', (req, res) => {
     res.sendFile(`${lobbyRoot}/index.html`);
     return;
 })
-app.use('/', express.static(lobbyRoot));
+clusterFunApp.use('/', express.static(lobbyRoot));
+
+
+const handsHighPath =  process.env.HANDSHIGH_DEV_CLIENT_PATH ?? "HandsHigh"
+const handsHighRoot = path.join(__dirname, handsHighPath);
+logger.logLine("Serving the HandsHigh from " + handsHighRoot);
+handsHighApp.get('', (req, res) => {
+    res.sendFile(`${handsHighRoot}/index.html`);
+    return;
+})
+handsHighApp.use('/', express.static(handsHighRoot));
+
+app.use(vhost('handshigh.localhost', handsHighApp))
+app.use(vhost('localhost', clusterFunApp))
+
 
 // ---------------------------------------------------------------------------------
 // Message handling for the process
