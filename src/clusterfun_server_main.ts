@@ -46,8 +46,13 @@ const api = new ApiHandler(serverModel, logger);
 //--------------------------------------------------------------------------------------
 // CLUSTERFUN app setup
 //--------------------------------------------------------------------------------------
+const app = express();
+
 const clusterFunApp = express();
-const clusterFunApp_ws = express_ws(clusterFunApp);
+
+// HACK:  TODO:  For some reason, web socket api does not work
+// with subdomains.  Only with the main express app.
+const clusterFunApp_ws = express_ws(app);
 
 if(killPath) {
     // Set up kill path as first processor.  Invoking the server with the killpath
@@ -114,7 +119,6 @@ handsHighApp.use(express.static(handsHighRoot, {redirect: false}))
 //--------------------------------------------------------------------------------------
 // VIRTUAL HOST app setup
 //--------------------------------------------------------------------------------------
-const app = express();
 app.use(vhost('handshigh.localhost', handsHighApp))
 app.use(vhost('localhost', clusterFunApp))
 
