@@ -9,7 +9,15 @@ import { ApiHandler } from './apis/ApiHandlers.js';
 import { version as VERSION } from './version.js';
 import vhost from 'vhost';
 
+//--------------------------------------------------------------------------------------
+// Local logging and evironment
+//--------------------------------------------------------------------------------------
 const logger = new Logger();
+logger.logLine("##################################################################################")
+logger.logLine("## Starting ClusterFun Server  v" + VERSION)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 
 // ---------------------------------------------------------------------------------
 // Configuration
@@ -29,25 +37,18 @@ for(let arg of process.argv.slice(2))
     }
 }
 
-
-logger.logLine("##################################################################################")
-logger.logLine("## Starting ClusterFun Server  v" + VERSION)
-
-
 // ---------------------------------------------------------------------------------
 // Set up models and base logic
 // ---------------------------------------------------------------------------------
-const app = express();
-const clusterFunApp = express();
-const clusterFunApp_ws = express_ws(clusterFunApp);
 const serverModel = new ServerModel(logger);
 const api = new ApiHandler(serverModel, logger);
-const handsHighApp = express();
 
+//--------------------------------------------------------------------------------------
+// CLUSTERFUN app setup
+//--------------------------------------------------------------------------------------
+const clusterFunApp = express();
+const clusterFunApp_ws = express_ws(clusterFunApp);
 
-// ---------------------------------------------------------------------------------
-// Special request handling
-// ---------------------------------------------------------------------------------
 if(killPath) {
     // Set up kill path as first processor.  Invoking the server with the killpath
     // specified allows testing logic to easily start and stop the server during tests
@@ -67,15 +68,7 @@ clusterFunApp.use(function(req, res, next) {
     next();
 });  
 
-handsHighApp.use(bodyParser.json());
-handsHighApp.use(function(req, res, next) {
-    logger.logLine(`HH Request: ${req.method}: ` + req.url)
-    next();
-});  
-
-// ---------------------------------------------------------------------------------
-// REST APIs / socket apis
-// ---------------------------------------------------------------------------------
+// Clusterfun APIs
 clusterFunApp.post("/api/startgame", api.startGame);
 clusterFunApp.post("/api/joingame", api.joinGame);
 clusterFunApp.post("/api/terminategame", api.terminateGame);
@@ -84,36 +77,44 @@ clusterFunApp.get("/api/game_manifest", api.getGameManifest);
 
 clusterFunApp_ws.app.ws('/talk/:roomId/:personalId', api.handleSocket);
 
-// ---------------------------------------------------------------------------------
-// Lobby setup
-// ---------------------------------------------------------------------------------
-// NOTE: This previously fetched "../../../frontend/build" in a production environment.
-// The deploy system should instead either deploy the frontend and games to this
-// "client" folder in dist, or the server should determine the path to the lobby from
-// a manifest file
 const clientPath = process.env.CLUSTERFUN_DEV_CLIENT_PATH ?? "client"
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const lobbyRoot = path.join(__dirname, clientPath);
-
-
-logger.logLine("Serving the Clusterfun from " + lobbyRoot);
+const clusterfunRootFolder = path.join(__dirname, clientPath);
+logger.logLine("Serving the Clusterfun from " + clusterfunRootFolder);
 clusterFunApp.get('', (req, res) => {
-    res.sendFile(`${lobbyRoot}/index.html`);
+    res.sendFile(`${clusterfunRootFolder}/index.html`);
     return;
 })
-clusterFunApp.use('/', express.static(lobbyRoot));
+clusterFunApp.use('/', express.static(clusterfunRootFolder));
 
+
+//--------------------------------------------------------------------------------------
+// HANDSHIGH app setup
+//--------------------------------------------------------------------------------------
+const handsHighApp = express();
+handsHighApp.use(function(req, res, next) {
+    logger.logLine(`HH Request: ${req.method}: ${req.url}`)
+    next();
+});  
 
 const handsHighPath =  process.env.HANDSHIGH_DEV_CLIENT_PATH ?? "HandsHigh"
 const handsHighRoot = path.join(__dirname, handsHighPath);
 logger.logLine("Serving the HandsHigh from " + handsHighRoot);
-handsHighApp.get('', (req, res) => {
+
+// React: Any kind of a normal routed path should go to the index
+handsHighApp.get('*', (req, res, next) => {
+    if(req.path.indexOf('.') > -1) {
+        next();
+        return;
+    }
     res.sendFile(`${handsHighRoot}/index.html`);
     return;
 })
-handsHighApp.use('/', express.static(handsHighRoot));
+handsHighApp.use(express.static(handsHighRoot, {redirect: false}))
 
+//--------------------------------------------------------------------------------------
+// VIRTUAL HOST app setup
+//--------------------------------------------------------------------------------------
+const app = express();
 app.use(vhost('handshigh.localhost', handsHighApp))
 app.use(vhost('localhost', clusterFunApp))
 
