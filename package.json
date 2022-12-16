@@ -1,6 +1,6 @@
 {
   "name": "@clusterfun/server",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Central server for clusterfun",
   "main": "dist/clusterfun_server_main.js",
   "type": "module",
