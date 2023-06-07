@@ -1,7 +1,9 @@
 
+import { GameRole } from "./GameRole.js";
+
 export interface GameInstanceProperties {
     gameName: string;
-    role: 'client' | 'presenter';
+    role: GameRole;
     roomId: string;
     presenterId: string;
     personalId: string;

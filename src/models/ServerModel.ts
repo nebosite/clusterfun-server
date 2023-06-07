@@ -4,6 +4,7 @@ import { version as VERSION } from "../version.js";
 import { generateRoomCode, generatePersonalId, generatePersonalSecret } from "../helpers/id-codes.js";
 import { GameInstanceProperties } from "../libs/config/GameInstanceProperties.js";
 import os from 'os';
+import { GameRole } from "../libs/config/GameRole.js";
 
 const cores = os.cpus();
 
@@ -239,7 +240,7 @@ export class ServerModel {
             personalId,
             presenterId,
             personalSecret,
-            role: "presenter"
+            role: GameRole.Presenter
         };
 
         return properties
@@ -269,7 +270,7 @@ export class ServerModel {
             personalId,
             presenterId,
             personalSecret,
-            role: "client"
+            role: GameRole.Client
         };
         return properties;
     }
