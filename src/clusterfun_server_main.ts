@@ -77,6 +77,7 @@ clusterFunApp.use(function(req, res, next) {
 clusterFunApp.post("/api/startgame", api.startGame);
 clusterFunApp.post("/api/joingame", api.joinGame);
 clusterFunApp.post("/api/terminategame", api.terminateGame);
+clusterFunApp.post("/api/get_room_info", api.getRoomInfo);
 clusterFunApp.get("/api/am_i_healthy", api.showHealth);
 clusterFunApp.get("/api/game_manifest", api.getGameManifest);
 

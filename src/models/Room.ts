@@ -3,11 +3,13 @@ import { WebSocket } from 'ws';
 import { Logger } from "../helpers/consoleHelpers.js";
 import ClusterFunMessageHeader from '../libs/comms/ClusterFunMessageHeader.js';
 import { ServerModel } from "./ServerModel.js";
+import { GameRole } from '../libs/config/GameRole.js';
 
 export interface Endpoint {
     id: string;
     secret: string;
     name: string;
+    role: GameRole;
     socket?: WebSocket;
 }
 
@@ -25,17 +27,18 @@ export class Room {
     id: string;
     endpoints: Map<string, Endpoint>;
     presenterId: string;
+    vipId: string | undefined;
     game: string;
     lastMessageTime = Date.now();
     logger: Logger
     idle = false;
     serverModel: ServerModel
 
-    // Active means any messages in the last 10 minutes
+    // Active means any messages in the last hour
     get isActive() { return (Date.now() - this.lastMessageTime ) < ONE_HOUR}
 
     get userCount() { return Array.from(this.endpoints.values()).reduce(
-            (total: number, ep: Endpoint) => total + ((ep.name != "presenter" && ep.socket != null) ? 1 : 0),0) }
+            (total: number, ep: Endpoint) => total + ((ep.role !== GameRole.Presenter && ep.socket != null) ? 1 : 0),0) }
 
     //------------------------------------------------------------------------------------------
     // ctor
@@ -47,7 +50,7 @@ export class Room {
         this.game = game;
         this.presenterId = presenterId;
         this.endpoints = new Map<string, Endpoint>();
-        this.addEndpoint(presenterId, presenterSecret, 'presenter');
+        this.addEndpoint(presenterId, presenterSecret, 'presenter', GameRole.Presenter);
     }
 
     //------------------------------------------------------------------------------------------
@@ -61,13 +64,16 @@ export class Room {
                 this.endpoints.get(k)?.socket?.close();
                 this.endpoints.delete(k)
             } )  
+        if (this.vipId !== this.presenterId) {
+            this.vipId = undefined;
+        }
         this.idle = true; 
     }
 
     //------------------------------------------------------------------------------------------
-    // validatePresenter
+    // validateUser
     //------------------------------------------------------------------------------------------
-    validatePresenter(id: string, secret: string) {
+    validateUser(id: string, secret: string) {
         const player = this.endpoints.get(id);
         const isValid = player && player.secret === secret
         return isValid
@@ -76,8 +82,8 @@ export class Room {
     //------------------------------------------------------------------------------------------
     // addEndpoint
     //------------------------------------------------------------------------------------------
-    addEndpoint(id: string, secret: string, name: string) {
-        this.endpoints.set(id, { id, secret, name });
+    addEndpoint(id: string, secret: string, name: string, role: GameRole) {
+        this.endpoints.set(id, { id, secret, name, role });
     }
 
     //------------------------------------------------------------------------------------------

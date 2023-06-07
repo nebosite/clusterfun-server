@@ -1,9 +1,11 @@
+import { GameRole } from "./GameRole.js";
 
-export interface GameInstanceProperties {
+export interface JoinResponse {
     gameName: string;
-    role: 'client' | 'presenter';
+    role: GameRole;
     roomId: string;
     presenterId: string;
     personalId: string;
     personalSecret: string;
+    isVip: boolean;
 }

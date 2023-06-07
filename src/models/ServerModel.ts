@@ -2,8 +2,10 @@ import { Room } from "./Room.js";
 import { Logger } from "../helpers/consoleHelpers.js";
 import { version as VERSION } from "../version.js";
 import { generateRoomCode, generatePersonalId, generatePersonalSecret } from "../helpers/id-codes.js";
-import { GameInstanceProperties } from "../libs/config/GameInstanceProperties.js";
+import { JoinResponse } from "../libs/config/JoinResponse.js";
 import os from 'os';
+import { GameRole } from "../libs/config/GameRole.js";
+import { RoomInfoResponse } from "../libs/config/RoomInfoResponse.js";
 
 const cores = os.cpus();
 
@@ -206,7 +208,7 @@ export class ServerModel {
     //--------------------------------------------------------------------------------------
     // 
     //--------------------------------------------------------------------------------------
-    startGame(gameName: string, existingRoom: ExistingRoomInfo) {
+    startGame(gameName: string, existingRoom: ExistingRoomInfo, shouldDeferVip?: boolean) {
         if(!gameName)
         {
             throw Error("Game name not specified");
@@ -232,14 +234,20 @@ export class ServerModel {
         }
 
         const presenterId = personalId;
+        const isVip = !shouldDeferVip;
+        if (isVip) {
+            const room = this.getRoom(roomId)!;
+            room.vipId = personalId;
+        }
 
-        const properties: GameInstanceProperties = {
+        const properties: JoinResponse = {
             gameName,
             roomId,
             personalId,
             presenterId,
             personalSecret,
-            role: "presenter"
+            isVip,
+            role: GameRole.Presenter
         };
 
         return properties
@@ -248,7 +256,7 @@ export class ServerModel {
     //--------------------------------------------------------------------------------------
     // 
     //--------------------------------------------------------------------------------------
-    joinGame(roomId: string, playerName: string) {
+    joinGame(roomId: string, playerName: string, shouldDeferVip?: boolean) {
         if (!roomId || roomId.length > 4)  {
             throw Error(`Invalid Room Code (${roomId})`)
         }
@@ -263,13 +271,20 @@ export class ServerModel {
         const presenterId = room.presenterId;
         const gameName = room.game;
 
-        const properties: GameInstanceProperties = {
+        let isVip = false;
+        if (!shouldDeferVip && !room.vipId) {
+            room.vipId = personalId;
+            isVip = true;
+        }
+
+        const properties: JoinResponse = {
             gameName,
             roomId,
             personalId,
             presenterId,
             personalSecret,
-            role: "client"
+            isVip,
+            role: GameRole.Client
         };
         return properties;
     }
@@ -280,7 +295,7 @@ export class ServerModel {
     reuseRoom(gameName: string, existingRoom: {id: string, presenterId: string, presenterSecret: string})
     {
         const room = this.rooms.get(existingRoom.id);
-        if(!room || !room.validatePresenter(existingRoom.presenterId, existingRoom.presenterSecret)) {
+        if(!room || !room.validateUser(existingRoom.presenterId, existingRoom.presenterSecret)) {
             return false;
         }
 
@@ -342,7 +357,7 @@ export class ServerModel {
             throw new Error("Join missing game");
         }
 
-        room.addEndpoint(playerId, playerSecret, name);        
+        room.addEndpoint(playerId, playerSecret, name, GameRole.Client);        
 
         return room;
     }
@@ -353,6 +368,62 @@ export class ServerModel {
     getRoom(roomId: string) 
     {
         return this.rooms.get(roomId);
+    }
+
+    //------------------------------------------------------------------------------------------
+    // getRoomInfo
+    //------------------------------------------------------------------------------------------
+    getRoomInfo(roomId: string, personalId?: string, personalSecret?: string) 
+    {
+        // Get serializable room info, including the game being played, the list of players,
+        // who the VIP is, and other information. Privledge this info based on who the
+        // requester is:
+        // - All requesters (including players not in the room) get the game name and number of players
+        // - Players in the room also get the presenter's ID
+        // - The VIP gets the presenter's ID and their own ID
+        // - The presenter gets the full user list, their own ID and the VIP's ID, and any
+        //   additional debugging information
+        // - If the player is not in the room, show only the game name and number of players
+        // - If the player is in the room, but not the presenter, also give the presenter's ID
+        // - If the player is the presenter, give the VIP
+
+        if(!this.rooms.has(roomId))
+        {
+            this.logEvent(ClusterFunEventType.GeneralError, undefined, "Get info for invalid room id")
+            throw new Error("Get info for invalid room id");
+        }
+
+        const room = this.rooms.get(roomId);
+        if(!room) {
+            this.logEvent(ClusterFunEventType.GeneralError, undefined, "Get info for missing game")
+            throw new Error("Get info for missing game");
+        }
+
+        const roomInfo: RoomInfoResponse = {
+            game: room.game,
+            userCount: room.userCount
+        };
+
+        if (!personalId || !personalSecret || !room.validateUser(personalId, personalSecret)) {
+            // add nothing
+        } else {
+            roomInfo.presenterId = room.presenterId;
+            if (personalId === room.presenterId) {
+                roomInfo.vipId = room.vipId;
+                roomInfo.lastMessageTime = room.lastMessageTime;
+                roomInfo.users = Array.from(room.endpoints.values()).map(endpoint => {
+                    return {
+                        name: endpoint.name,
+                        id: endpoint.id,
+                        role: endpoint.role
+                    }
+                })
+            } else if (personalId === room.vipId) {
+                roomInfo.vipId = room.vipId;
+            }
+        }
+
+        return roomInfo;
     }
 
     //------------------------------------------------------------------------------------------

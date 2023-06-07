@@ -104,11 +104,11 @@ export class ApiHandler {
                 throw new UserError("Missing Body for Start Game")
             }
         
-            const { gameName, existingRoom } = req.body;
+            const { gameName, existingRoom, shouldDeferVip = false } = req.body;
             if(existingRoom) {
                 this.logger.logLine(`Existing room specified: ${JSON.stringify(existingRoom)}`)
             }
-            const roomProperties = this.serverModel.startGame(gameName, existingRoom);
+            const roomProperties = this.serverModel.startGame(gameName, existingRoom, shouldDeferVip);
     
             return roomProperties;
         })
@@ -123,10 +123,26 @@ export class ApiHandler {
                 throw new UserError("Missing Body for Join Game")
             }
         
-            const { roomId, playerName } = req.body;
-            const roomProperties = this.serverModel.joinGame(roomId, playerName);
+            const { roomId, playerName, shouldDeferVip = false } = req.body;
+            const roomProperties = this.serverModel.joinGame(roomId, playerName, shouldDeferVip);
 
             return roomProperties;
+        })
+    }
+
+    //--------------------------------------------------------------------------------------
+    // 
+    //--------------------------------------------------------------------------------------
+    getRoomInfo = (req: Request, res: Response) => {
+        this.safeCall(req, res, "GetRoomInfo", async () => {
+            if (!req.body) {
+                throw new UserError("Missing Body for Get Room Info")
+            }
+        
+            const { roomId, personalId, personalSecret } = req.body;
+            const roomProperties = this.serverModel.getRoomInfo(roomId, personalId, personalSecret);
+
+            return roomProperties;           
         })
     }
 
