@@ -139,8 +139,8 @@ export class ApiHandler {
                 throw new UserError("Missing Body for Terminate Game")
             }
         
-            const { roomId, presenterSecret } = req.body;   
-            this.serverModel.clearRoom(roomId, presenterSecret); 
+            const { roomId, hostSecret } = req.body;   
+            this.serverModel.clearRoom(roomId, hostSecret); 
 
             return {message: "OK"};
         })

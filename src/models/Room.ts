@@ -26,7 +26,7 @@ const ONE_HOUR = 3600 * 1000
 export class Room {
     id: string;
     endpoints: Map<string, Endpoint>;
-    presenterId: string;
+    hostId: string;
     game: string;
     lastMessageTime = Date.now();
     logger: Logger
@@ -37,28 +37,28 @@ export class Room {
     get isActive() { return (Date.now() - this.lastMessageTime ) < ONE_HOUR}
 
     get userCount() { return Array.from(this.endpoints.values()).reduce(
-            (total: number, ep: Endpoint) => total + ((ep.role !== GameRole.Presenter && ep.socket != null) ? 1 : 0),0) }
+            (total: number, ep: Endpoint) => total + ((ep.role === GameRole.Client && ep.socket != null) ? 1 : 0),0) }
 
     //------------------------------------------------------------------------------------------
     // ctor
     //------------------------------------------------------------------------------------------
-    constructor(id: string, serverModel: ServerModel, game: string, presenterId: string, presenterSecret: string, logger: Logger) {
+    constructor(id: string, serverModel: ServerModel, game: string, hostId: string, hostSecret: string, logger: Logger) {
         this.logger = logger;
         this.id = id;
         this.serverModel = serverModel;
         this.game = game;
-        this.presenterId = presenterId;
+        this.hostId = hostId;
         this.endpoints = new Map<string, Endpoint>();
-        this.addEndpoint(presenterId, presenterSecret, 'presenter', GameRole.Presenter);
+        this.addEndpoint(hostId, hostSecret, 'host', GameRole.Host);
     }
 
     //------------------------------------------------------------------------------------------
     // clear
     //------------------------------------------------------------------------------------------
     clear() {
-        // delete everyone but the presenter
+        // delete everyone but the host
         Array.from(this.endpoints.keys())
-            .filter(k => k != this.presenterId)
+            .filter(k => k != this.hostId)
             .forEach(k=> {
                 this.endpoints.get(k)?.socket?.close();
                 this.endpoints.delete(k)
@@ -67,9 +67,9 @@ export class Room {
     }
 
     //------------------------------------------------------------------------------------------
-    // validatePresenter
+    // validateUser
     //------------------------------------------------------------------------------------------
-    validatePresenter(id: string, secret: string) {
+    validateUser(id: string, secret: string) {
         const player = this.endpoints.get(id);
         const isValid = player && player.secret === secret
         return isValid

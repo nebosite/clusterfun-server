@@ -1,4 +1,5 @@
 export enum GameRole {
     Client = "client",
-    Presenter = "presenter"
+    Presenter = "presenter",
+    Host = "host",
 }

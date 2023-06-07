@@ -5,7 +5,7 @@ export interface GameInstanceProperties {
     gameName: string;
     role: GameRole;
     roomId: string;
-    presenterId: string;
+    hostId: string;
     personalId: string;
     personalSecret: string;
 }

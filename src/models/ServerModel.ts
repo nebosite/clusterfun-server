@@ -10,8 +10,8 @@ const cores = os.cpus();
 
 interface ExistingRoomInfo {
     id: string
-    presenterId: string
-    presenterSecret: string  
+    hostId: string
+    hostSecret: string  
 }
 
 export enum ClusterFunEventType {
@@ -220,8 +220,8 @@ export class ServerModel {
         if(existingRoom && this.reuseRoom(gameName, existingRoom)) {
             this.logger.logLine(`Reusing room id: ${existingRoom.id} for ${gameName}`)
             roomId = existingRoom.id;
-            personalId = existingRoom.presenterId;
-            personalSecret = existingRoom.presenterSecret;
+            personalId = existingRoom.hostId;
+            personalSecret = existingRoom.hostId;
         }
         else {
             while(this.hasRoom(roomId))
@@ -232,15 +232,15 @@ export class ServerModel {
             this.logger.logLine(`Created a new room id: ${roomId} for ${gameName}`)
         }
 
-        const presenterId = personalId;
+        const hostId = personalId;
 
         const properties: GameInstanceProperties = {
             gameName,
             roomId,
             personalId,
-            presenterId,
+            hostId,
             personalSecret,
-            role: GameRole.Presenter
+            role: GameRole.Host
         };
 
         return properties
@@ -261,14 +261,14 @@ export class ServerModel {
         const personalSecret = generatePersonalSecret();
 
         const room = this.joinPersonToRoom(playerName, personalId, personalSecret, roomId)
-        const presenterId = room.presenterId;
+        const hostId = room.hostId;
         const gameName = room.game;
 
         const properties: GameInstanceProperties = {
             gameName,
             roomId,
             personalId,
-            presenterId,
+            hostId,
             personalSecret,
             role: GameRole.Client
         };
@@ -278,10 +278,10 @@ export class ServerModel {
     //------------------------------------------------------------------------------------------
     // 
     //------------------------------------------------------------------------------------------
-    reuseRoom(gameName: string, existingRoom: {id: string, presenterId: string, presenterSecret: string})
+    reuseRoom(gameName: string, existingRoom: {id: string, hostId: string, hostSecret: string})
     {
         const room = this.rooms.get(existingRoom.id);
-        if(!room || !room.validatePresenter(existingRoom.presenterId, existingRoom.presenterSecret)) {
+        if(!room || !room.validateUser(existingRoom.hostId, existingRoom.hostSecret)) {
             return false;
         }
 
@@ -293,10 +293,10 @@ export class ServerModel {
     //------------------------------------------------------------------------------------------
     // Create a room and add it to the list
     //------------------------------------------------------------------------------------------
-    createRoom(id: string, game: string, presenterId: string, presenterSecret: string)
+    createRoom(id: string, game: string, hostId: string, hostSecret: string)
     {
         if (!this.rooms.has(id)) {
-            this.rooms.set(id, new Room(id, this, game, presenterId, presenterSecret, this.logger));
+            this.rooms.set(id, new Room(id, this, game, hostId, hostSecret, this.logger));
         }
         else {
             this.logEvent(ClusterFunEventType.GeneralError, undefined, "Room Exists")
@@ -307,12 +307,12 @@ export class ServerModel {
     //------------------------------------------------------------------------------------------
     // Indicate game is done for this room
     //------------------------------------------------------------------------------------------
-    clearRoom(roomId: string, presenterSecret: string) {
+    clearRoom(roomId: string, hostSecret: string) {
         const room = this.rooms.get(roomId);
         if(!room) throw new Error("removeRoom: Could not find room with id " + roomId);
-        const foundEndpoint = Array.from(room.endpoints.values()).find(e => e.secret === presenterSecret);
-        if(!foundEndpoint) throw new Error(`removeRoom: Secret ${presenterSecret} not found in roomId ${roomId} `);
-        if(room.presenterId != foundEndpoint.id) throw new Error("removeRoom: presenterSecret does not belong to the presenter!");
+        const foundEndpoint = Array.from(room.endpoints.values()).find(e => e.secret === hostSecret);
+        if(!foundEndpoint) throw new Error(`removeRoom: Secret ${hostSecret} not found in roomId ${roomId} `);
+        if(room.hostId != foundEndpoint.id) throw new Error("removeRoom: hostSecret does not belong to the host!");
         room.clear();
     }
 
