@@ -3,11 +3,13 @@ import { WebSocket } from 'ws';
 import { Logger } from "../helpers/consoleHelpers.js";
 import ClusterFunMessageHeader from '../libs/comms/ClusterFunMessageHeader.js';
 import { ServerModel } from "./ServerModel.js";
+import { GameRole } from '../libs/config/GameRole.js';
 
 export interface Endpoint {
     id: string;
     secret: string;
     name: string;
+    role: GameRole;
     socket?: WebSocket;
 }
 
@@ -35,7 +37,7 @@ export class Room {
     get isActive() { return (Date.now() - this.lastMessageTime ) < ONE_HOUR}
 
     get userCount() { return Array.from(this.endpoints.values()).reduce(
-            (total: number, ep: Endpoint) => total + ((ep.name != "presenter" && ep.socket != null) ? 1 : 0),0) }
+            (total: number, ep: Endpoint) => total + ((ep.role !== GameRole.Presenter && ep.socket != null) ? 1 : 0),0) }
 
     //------------------------------------------------------------------------------------------
     // ctor
@@ -47,7 +49,7 @@ export class Room {
         this.game = game;
         this.presenterId = presenterId;
         this.endpoints = new Map<string, Endpoint>();
-        this.addEndpoint(presenterId, presenterSecret, 'presenter');
+        this.addEndpoint(presenterId, presenterSecret, 'presenter', GameRole.Presenter);
     }
 
     //------------------------------------------------------------------------------------------
@@ -76,8 +78,8 @@ export class Room {
     //------------------------------------------------------------------------------------------
     // addEndpoint
     //------------------------------------------------------------------------------------------
-    addEndpoint(id: string, secret: string, name: string) {
-        this.endpoints.set(id, { id, secret, name });
+    addEndpoint(id: string, secret: string, name: string, role: GameRole) {
+        this.endpoints.set(id, { id, secret, name, role });
     }
 
     //------------------------------------------------------------------------------------------

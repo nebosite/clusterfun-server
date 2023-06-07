@@ -343,7 +343,7 @@ export class ServerModel {
             throw new Error("Join missing game");
         }
 
-        room.addEndpoint(playerId, playerSecret, name);        
+        room.addEndpoint(playerId, playerSecret, name, GameRole.Client);        
 
         return room;
     }
