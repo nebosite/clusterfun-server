@@ -1,4 +1,5 @@
 import { Logger } from "../helpers/consoleHelpers.js";
+import { GameRole } from "../libs/config/GameRole.js";
 import { ServerModel } from "../models/ServerModel.js";
 import { Request, Response } from "express";
 import { WebSocket } from 'ws';
@@ -123,8 +124,8 @@ export class ApiHandler {
                 throw new UserError("Missing Body for Join Game")
             }
         
-            const { roomId, playerName } = req.body;
-            const roomProperties = this.serverModel.joinGame(roomId, playerName);
+            const { roomId, playerName, role = GameRole.Client } = req.body;
+            const roomProperties = this.serverModel.joinGame(roomId, playerName, role);
 
             return roomProperties;
         })

@@ -249,18 +249,21 @@ export class ServerModel {
     //--------------------------------------------------------------------------------------
     // 
     //--------------------------------------------------------------------------------------
-    joinGame(roomId: string, playerName: string) {
+    joinGame(roomId: string, playerName: string, role: GameRole) {
         if (!roomId || roomId.length > 4)  {
             throw Error(`Invalid Room Code (${roomId})`)
         }
         if (!playerName || playerName.length > 16) {
             throw Error(`Invalid Player name: (${playerName})`)
         }
+        if (role !== GameRole.Client && role !== GameRole.Presenter) {
+            throw Error(`Invalid Role: (${role})`)
+        }
 
         const personalId = generatePersonalId();
         const personalSecret = generatePersonalSecret();
 
-        const room = this.joinPersonToRoom(playerName, personalId, personalSecret, roomId)
+        const room = this.joinPersonToRoom(playerName, personalId, personalSecret, roomId);
         const hostId = room.hostId;
         const gameName = room.game;
 
@@ -270,7 +273,7 @@ export class ServerModel {
             personalId,
             hostId,
             personalSecret,
-            role: GameRole.Client
+            role
         };
         return properties;
     }
