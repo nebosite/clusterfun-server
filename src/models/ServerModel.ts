@@ -221,7 +221,7 @@ export class ServerModel {
             this.logger.logLine(`Reusing room id: ${existingRoom.id} for ${gameName}`)
             roomId = existingRoom.id;
             personalId = existingRoom.hostId;
-            personalSecret = existingRoom.hostId;
+            personalSecret = existingRoom.hostSecret;
         }
         else {
             while(this.hasRoom(roomId))
