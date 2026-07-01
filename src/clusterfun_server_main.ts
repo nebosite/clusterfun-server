@@ -93,33 +93,8 @@ clusterFunApp.use('/', express.static(clusterfunRootFolder));
 
 
 //--------------------------------------------------------------------------------------
-// HANDSHIGH app setup
-//--------------------------------------------------------------------------------------
-const handsHighApp = express();
-handsHighApp.use(function(req, res, next) {
-    logger.logLine(`HH Request: ${req.method}: ${req.url}`)
-    next();
-});  
-
-const handsHighPath =  process.env.HANDSHIGH_DEV_CLIENT_PATH ?? "HandsHigh"
-const handsHighRoot = path.join(__dirname, handsHighPath);
-logger.logLine("Serving the HandsHigh from " + handsHighRoot);
-
-// React: Any kind of a normal routed path should go to the index
-handsHighApp.get('*', (req, res, next) => {
-    if(req.path.indexOf('.') > -1) {
-        next();
-        return;
-    }
-    res.sendFile(`${handsHighRoot}/index.html`);
-    return;
-})
-handsHighApp.use(express.static(handsHighRoot, {redirect: false}))
-
-//--------------------------------------------------------------------------------------
 // VIRTUAL HOST app setup
 //--------------------------------------------------------------------------------------
-app.use(vhost('handshigh.localhost', handsHighApp))
 app.use(vhost('localhost', clusterFunApp))
 
 
