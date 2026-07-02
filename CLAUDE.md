@@ -87,6 +87,10 @@ npm start          # node dist/clusterfun_server_main.js  (production entry)
 npm test           # builds, then runs the native node --test runner with coverage
 ```
 
+**Add tests for new logic, and run `npm test` before committing.** The relay's routing,
+secret validation, and room-lifecycle rules are exactly the kind of thing a small change can
+silently break; the suite is fast, so run it often.
+
 Tests use the built-in `node:test` runner + `node:assert` (no mocha/chai). Specs live
 next to their source as `*.test.ts`, compile to `dist/**/*.test.js`, and are run with
 `node --test` (`--test-force-exit` is required because `ServerModel` starts a CPU-usage
