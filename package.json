@@ -9,7 +9,7 @@
     "startdev_old": "genversion --es6 src/version.js && env-cmd -f ./env.dev nodemon src/clusterfun_server_main.ts",
     "start": "genversion --es6 src/version.js && node dist/clusterfun_server_main.js",
     "build": "genversion --es6 src/version.js && tsc",
-    "test": "nyc ./node_modules/mocha/bin/_mocha dist/**/*.spec.js"
+    "test": "npm run build && node --test --test-force-exit --experimental-test-coverage --test-coverage-exclude=\"**/*.test.js\" --test-coverage-exclude=\"dist/version.js\" \"dist/**/*.test.js\""
   },
   "author": "Eric Jorgensen",
   "license": "ISC",
@@ -23,18 +23,13 @@
     "ws": "^8.8.1"
   },
   "devDependencies": {
-    "@types/chai": "^4.3.3",
     "@types/express": "^4.17.1",
     "@types/express-serve-static-core": "^4.17.30",
     "@types/express-ws": "^3.0.1",
-    "@types/mocha": "^9.1.1",
     "@types/node": "^18.7.18",
-    "chai": "^4.3.6",
     "env-cmd": "^10.1.0",
     "genversion": "^3.1.1",
-    "mocha": "^10.0.0",
     "nodemon": "^2.0.4",
-    "nyc": "^15.1.0",
     "ts-node": "^10.3.0",
     "typescript": "^4.8.3"
   }

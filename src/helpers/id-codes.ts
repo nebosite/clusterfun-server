@@ -9,15 +9,14 @@ export function generateRoomCode(): string {
     const scaled = Math.floor(randBuffer[0] / (2 ** 32) * (31 ** 4));
     return scaled.toString(31)
         .padStart(4, "0")
-        .replace("a", "v")
-        .replace("e", "w")
-        .replace("i", "x")
-        .replace("o", "y")
-        .replace("u", "z")
-        .replace("0", "k")
-        .replace("1", "m")
-        .replace("l", "q")
-        .replace("u", "z")
+        .replace(/a/g, "v")
+        .replace(/e/g, "w")
+        .replace(/i/g, "x")
+        .replace(/o/g, "y")
+        .replace(/u/g, "z")
+        .replace(/0/g, "k")
+        .replace(/1/g, "m")
+        .replace(/l/g, "q")
         .toUpperCase();
 }
 

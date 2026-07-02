@@ -84,8 +84,14 @@ npm install
 npm run startdev   # ts-node/esm + env.dev; regenerates src/version.js; serves ../../clusterfun-client/build
 npm run build      # tsc → dist/  (also regenerates version.js via genversion)
 npm start          # node dist/clusterfun_server_main.js  (production entry)
-npm test           # mocha over dist/**/*.spec.js  (build first)
+npm test           # builds, then runs the native node --test runner with coverage
 ```
+
+Tests use the built-in `node:test` runner + `node:assert` (no mocha/chai). Specs live
+next to their source as `*.test.ts`, compile to `dist/**/*.test.js`, and are run with
+`node --test` (`--test-force-exit` is required because `ServerModel` starts a CPU-usage
+`setInterval` that otherwise keeps the test process alive). `--experimental-test-coverage`
+prints a per-file coverage table.
 
 - Listens on **8080** by default; override with `PORT_OVERRIDE` env var.
 - `env.dev` sets `ISDEV=1` and points `CLUSTERFUN_DEV_CLIENT_PATH` at the client `build/`
