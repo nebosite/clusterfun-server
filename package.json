@@ -9,7 +9,9 @@
     "startdev_old": "genversion --es6 src/version.js && env-cmd -f ./env.dev nodemon src/clusterfun_server_main.ts",
     "start": "genversion --es6 src/version.js && node dist/clusterfun_server_main.js",
     "build": "genversion --es6 src/version.js && tsc",
-    "test": "npm run build && node --test --test-force-exit --experimental-test-coverage --test-coverage-exclude=\"**/*.test.js\" --test-coverage-exclude=\"dist/version.js\" \"dist/**/*.test.js\""
+    "test": "npm run build && node --test --test-force-exit --experimental-test-coverage --test-coverage-exclude=\"**/*.test.js\" --test-coverage-exclude=\"dist/version.js\" \"dist/**/*.test.js\"",
+    "format": "prettier --write --cache .",
+    "format:check": "prettier --check ."
   },
   "author": "Eric Jorgensen",
   "license": "ISC",
@@ -30,6 +32,7 @@
     "env-cmd": "^10.1.0",
     "genversion": "^3.1.1",
     "nodemon": "^2.0.4",
+    "prettier": "^3.9.4",
     "ts-node": "^10.3.0",
     "typescript": "^4.8.3"
   }

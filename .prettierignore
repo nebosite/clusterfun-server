@@ -1,0 +1,11 @@
+# Dependencies & build output
+node_modules
+dist
+coverage
+*.tgz
+
+# Generated file (produced by genversion)
+src/version.js
+
+# Lock files
+package-lock.json

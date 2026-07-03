@@ -1,6 +1,6 @@
 # clusterfun-server
 
-The ClusterFun **communications server**. Despite the name, it is *not* a game server — it
+The ClusterFun **communications server**. Despite the name, it is _not_ a game server — it
 runs no game logic and holds no game state. It is a message relay + identity/room manager
 that also serves the static client bundle. All game logic lives in the client
 (see [../clusterfun-client/CLAUDE.md](../clusterfun-client/CLAUDE.md)).
@@ -13,7 +13,7 @@ all state is in-memory and ephemeral.
 1. **Identity & rooms** — creates rooms with 4-char codes, issues each participant a
    `personalId` + `personalSecret`, tracks who is the presenter.
 2. **Message relay** — every participant opens one WebSocket. The server reads only the
-   message *header* (sender + receiver) and forwards the opaque payload to the target
+   message _header_ (sender + receiver) and forwards the opaque payload to the target
    participant's socket. It never inspects or understands message bodies.
 3. **Static hosting** — serves the built client at `/`.
 4. **Health/telemetry** — aggregates event counts (messages, errors, requests), CPU/memory,
@@ -37,14 +37,14 @@ clusterfun_server_main.ts   Entry: express app, routes, vhosts, background purge
 
 ### HTTP API (`clusterfun_server_main.ts`)
 
-| Route | Handler | Purpose |
-|-------|---------|---------|
-| `POST /api/startgame` | `startGame` | Create (or reuse) a room for a game; returns presenter identity. |
-| `POST /api/joingame` | `joinGame` | Join a room by code + player name; returns client identity. |
-| `POST /api/terminategame` | `terminateGame` | Presenter ends the game (validated by `presenterSecret`). |
-| `GET /api/am_i_healthy` | `showHealth` | Health/metrics JSON (used by deploy sanity check). |
-| `GET /api/game_manifest` | `getGameManifest` | **Hardcoded** list of games shown in the production lobby. |
-| `WS /talk/:roomId/:personalId` | `handleSocket` | The relay socket. |
+| Route                          | Handler           | Purpose                                                          |
+| ------------------------------ | ----------------- | ---------------------------------------------------------------- |
+| `POST /api/startgame`          | `startGame`       | Create (or reuse) a room for a game; returns presenter identity. |
+| `POST /api/joingame`           | `joinGame`        | Join a room by code + player name; returns client identity.      |
+| `POST /api/terminategame`      | `terminateGame`   | Presenter ends the game (validated by `presenterSecret`).        |
+| `GET /api/am_i_healthy`        | `showHealth`      | Health/metrics JSON (used by deploy sanity check).               |
+| `GET /api/game_manifest`       | `getGameManifest` | **Hardcoded** list of games shown in the production lobby.       |
+| `WS /talk/:roomId/:personalId` | `handleSocket`    | The relay socket.                                                |
 
 > **Adding a game to production** means editing the hardcoded array in `getGameManifest`
 > (currently `Lexible` and `Stressato`). The client must also have the game registered in
@@ -57,7 +57,7 @@ clusterfun_server_main.ts   Entry: express app, routes, vhosts, background purge
   `Room.setSocket`).
 - Messages are strings of the form `{header}^{payload}`. `Room.receiveMessage` parses only
   the JSON header (`MESSAGE_HEADER_REGEX`), reads `s` (sender) and `r` (receiver), verifies
-  the claimed sender matches the socket's owner, then forwards the *entire raw string* to the
+  the claimed sender matches the socket's owner, then forwards the _entire raw string_ to the
   receiver's socket. Payload is never deserialized server-side.
 - `ClusterFunMessageHeader` (`libs/comms`) is the header contract; keep it in sync with the
   client's `libs/comms/ClusterFunMessageHeader.ts`.
@@ -105,9 +105,17 @@ prints a per-file coverage table.
   sanity check to start/stop the server cleanly. Don't enable it in real production.
 - `version.js` is generated (`genversion`) from `package.json`; don't hand-edit it.
 
+## Formatting (Prettier)
+
+Source is formatted with [Prettier](https://prettier.io). **Run `npm run format` before
+committing** (`prettier --write --cache .`); `npm run format:check` verifies without writing.
+Config is in `.prettierrc.json`: `printWidth: 100` (100 columns) and **double quotes**
+(`singleQuote: false`); all else is Prettier defaults. `dist/` and the generated
+`src/version.js` are in `.prettierignore`.
+
 ## Notes / cleanup opportunities
 
-- The WebSocket route is registered on the *main* app rather than the clusterfun vhost
+- The WebSocket route is registered on the _main_ app rather than the clusterfun vhost
   because (per a code comment) `express-ws` doesn't cooperate with subdomains.
 - No persistence and no auth beyond the per-participant secret. Secrets are the only thing
   protecting a room; treat them accordingly.
