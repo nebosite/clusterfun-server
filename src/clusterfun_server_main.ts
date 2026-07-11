@@ -7,7 +7,6 @@ import bodyParser from "body-parser";
 import { Logger } from "./helpers/consoleHelpers.js";
 import { ApiHandler } from "./apis/ApiHandlers.js";
 import { version as VERSION } from "./version.js";
-import vhost from "vhost";
 
 //--------------------------------------------------------------------------------------
 // Local logging and evironment
@@ -92,9 +91,12 @@ clusterFunApp.get("", (req, res) => {
 clusterFunApp.use("/", express.static(clusterfunRootFolder));
 
 //--------------------------------------------------------------------------------------
-// VIRTUAL HOST app setup
+// Mount the ClusterFun app for every host. (It used to be behind
+// vhost("localhost") to share the server with the now-removed HandsHigh app;
+// with a single app that restriction only broke serving under the real
+// clusterfun.tv Host header that the Cloudflare tunnel forwards.)
 //--------------------------------------------------------------------------------------
-app.use(vhost("localhost", clusterFunApp));
+app.use(clusterFunApp);
 
 // ---------------------------------------------------------------------------------
 // Message handling for the process
