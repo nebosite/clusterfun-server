@@ -89,6 +89,7 @@ export class ApiHandler {
       return [
         { name: "PartyPix", displayName: "PartyPix", tags: ["alpha"] },
         { name: "Lexible", displayName: "Lexible", tags: ["alpha"] },
+        { name: "RetroSpectro", displayName: "Retro Spectro", tags: ["alpha"] },
         { name: "Stressato", displayName: "Stress Test", tags: ["debug"] },
       ];
     });
