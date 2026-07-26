@@ -1,0 +1,3 @@
+# Normalize line endings. Tooling here (Prettier, tsc) writes LF, so store and
+# check out LF everywhere to avoid spurious CRLF/LF diffs on Windows.
+* text=auto eol=lf
