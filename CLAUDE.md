@@ -37,14 +37,15 @@ clusterfun_server_main.ts   Entry: express app, routes, vhosts, background purge
 
 ### HTTP API (`clusterfun_server_main.ts`)
 
-| Route                          | Handler           | Purpose                                                          |
-| ------------------------------ | ----------------- | ---------------------------------------------------------------- |
-| `POST /api/startgame`          | `startGame`       | Create (or reuse) a room for a game; returns presenter identity. |
-| `POST /api/joingame`           | `joinGame`        | Join a room by code + player name; returns client identity.      |
-| `POST /api/terminategame`      | `terminateGame`   | Presenter ends the game (validated by `presenterSecret`).        |
-| `GET /api/am_i_healthy`        | `showHealth`      | Health/metrics JSON (used by deploy sanity check).               |
-| `GET /api/game_manifest`       | `getGameManifest` | **Hardcoded** list of games shown in the production lobby.       |
-| `WS /talk/:roomId/:personalId` | `handleSocket`    | The relay socket.                                                |
+| Route                          | Handler             | Purpose                                                          |
+| ------------------------------ | ------------------- | ---------------------------------------------------------------- |
+| `POST /api/startgame`          | `startGame`         | Create (or reuse) a room for a game; returns presenter identity. |
+| `POST /api/joingame`           | `joinGame`          | Join a room by code + player name; returns client identity.      |
+| `POST /api/terminategame`      | `terminateGame`     | Presenter ends the game (validated by `presenterSecret`).        |
+| `GET /api/am_i_healthy`        | `showHealth`        | Health/metrics JSON (used by deploy sanity check).               |
+| `GET /api/game_manifest`       | `getGameManifest`   | **Hardcoded** list of games shown in the production lobby.       |
+| `GET /api/game_popularity`     | `getGamePopularity` | Per-game play counts; the lobby orders its list by these.        |
+| `WS /talk/:roomId/:personalId` | `handleSocket`      | The relay socket.                                                |
 
 > **Adding a game to production** means editing the hardcoded array in `getGameManifest`
 > (currently `Lexible` and `Stressato`). The client must also have the game registered in
@@ -76,6 +77,29 @@ clusterfun_server_main.ts   Entry: express app, routes, vhosts, background purge
   do not treat server state as durable.
 - Errors: throw `UserError` for a message that should reach the user (→ HTTP 400); other
   throws become a 500 with a timecode. `safeCall` wraps every HTTP handler.
+
+### Game popularity (`models/PopularityStore.ts`)
+
+The one piece of state here that is **not** ephemeral. The relay counts a _play_ every time a
+room is opened for a game and a _player_ every time somebody joins one, and serves the
+totals at `/api/game_popularity` so the lobby can order its list by what people actually
+play. Deliberately independent of Google Analytics: the lobby has to sort itself without a
+third party in the loop.
+
+- Counts are kept in **daily buckets**, and the `score` the lobby sorts by decays with a
+  30-day half-life — last year's hit should not outrank this month's.
+- Buckets older than 400 days are folded into all-time totals and dropped.
+- **The file lives outside the deploy folder** (`~/analytics/popularity.json`, override with
+  `CLUSTERFUN_ANALYTICS_PATH`). `deployit.sh` deletes and recreates `deploy` wholesale, so
+  anything stored in there would be wiped by every deploy.
+- Writes are atomic (temp file + rename) and debounced to at most one per 5s, with a final
+  flush on process exit — so a normal stop (`stopserver.sh` sends SIGTERM → `process.exit`)
+  loses nothing. A power cut can lose up to 5 seconds of counts, which is the accepted trade
+  for not rewriting the file on every join.
+- Constructing a `PopularityStore` with **no path keeps it in memory and never touches
+  disk**, and that is the default — so tests (which all build a `ServerModel`) cannot write
+  into somebody's home directory. `clusterfun_server_main.ts` passes the real path.
+- A missing, corrupt, or future-schema file is survivable: it starts fresh and keeps serving.
 
 ## Build & run
 

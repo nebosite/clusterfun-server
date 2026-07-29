@@ -84,6 +84,20 @@ export class ApiHandler {
   //--------------------------------------------------------------------------------------
   //
   //--------------------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------------
+  // getGamePopularity - ClusterFun's own play counts, used by the lobby to order
+  // the game list.  Anonymous aggregate counts only: how many times each game has
+  // been opened and joined, never by whom.
+  // ---------------------------------------------------------------------------------
+  getGamePopularity = (req: Request, res: Response) => {
+    this.safeCall(req, res, "GetGamePopularity", async () => {
+      return this.serverModel.popularity.report();
+    });
+  };
+
+  //--------------------------------------------------------------------------------------
+  //
+  //--------------------------------------------------------------------------------------
   getGameManifest = (req: Request, res: Response) => {
     this.safeCall(req, res, "GetGameManifest", async () => {
       return [

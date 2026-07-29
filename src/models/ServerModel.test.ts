@@ -151,3 +151,35 @@ describe("ServerModel", () => {
     });
   });
 });
+
+describe("ServerModel - counting what gets played", () => {
+  it("counts a play when a room is opened, and a player for each join", () => {
+    const model = makeModel();
+    const game = model.startGame("Eittris", undefined as any);
+    model.joinGame(game.roomId, "Ann");
+    model.joinGame(game.roomId, "Bob");
+
+    const report = model.popularity.report();
+    assert.equal(report["Eittris"].plays, 1);
+    assert.equal(report["Eittris"].players, 2);
+    assert.ok(report["Eittris"].lastPlayed > 0);
+  });
+
+  it("keeps games apart", () => {
+    const model = makeModel();
+    model.startGame("Eittris", undefined as any);
+    model.startGame("Lexible", undefined as any);
+    model.startGame("Lexible", undefined as any);
+
+    const report = model.popularity.report();
+    assert.equal(report["Eittris"].plays, 1);
+    assert.equal(report["Lexible"].plays, 2);
+  });
+
+  it("does not write anything to disk unless it was given somewhere to write", () => {
+    // Guards the default: merely constructing a ServerModel (which every test
+    // does) must never touch the developer's home directory.
+    const model = makeModel();
+    assert.equal(model.popularity.isPersistent, false);
+  });
+});

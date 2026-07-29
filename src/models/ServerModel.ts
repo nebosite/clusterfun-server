@@ -7,6 +7,7 @@ import {
   generatePersonalSecret,
 } from "../helpers/id-codes.js";
 import { GameInstanceProperties } from "../libs/config/GameInstanceProperties.js";
+import { PopularityStore } from "./PopularityStore.js";
 import os from "os";
 
 const cores = os.cpus();
@@ -49,6 +50,11 @@ export class ServerModel {
   private rooms: Map<string, Room> = new Map<string, Room>();
   logger: Logger;
 
+  // ClusterFun's own play counts, kept on disk so the lobby can order games by
+  // what people actually play.  Separate from Google Analytics on purpose: the
+  // lobby must be able to sort itself without a third party in the loop.
+  readonly popularity: PopularityStore;
+
   startTime = Date.now();
 
   events = [] as EventRecord[];
@@ -63,8 +69,11 @@ export class ServerModel {
   //------------------------------------------------------------------------------------------
   // ctor
   //------------------------------------------------------------------------------------------
-  constructor(logger: Logger) {
+  constructor(logger: Logger, popularity?: PopularityStore) {
     this.logger = logger;
+    // Defaults to an in-memory store; the real server hands in a persistent one
+    this.popularity = popularity ?? new PopularityStore();
+    this.popularity.load();
 
     let lastUsage = process.cpuUsage();
     const secondsPerInterval = 2;
@@ -240,6 +249,9 @@ export class ServerModel {
       this.createRoom(roomId, gameName as string, personalId, personalSecret);
       this.logger.logLine(`Created a new room id: ${roomId} for ${gameName}`);
     }
+    // One "play" per room opened.  Reusing a room (the presenter restarting
+    // into the same code) counts too - it is another sitting of the game.
+    this.popularity.recordPlay(gameName);
 
     const presenterId = personalId;
 
@@ -272,6 +284,7 @@ export class ServerModel {
     const room = this.joinPersonToRoom(playerName, personalId, personalSecret, roomId);
     const presenterId = room.presenterId;
     const gameName = room.game;
+    this.popularity.recordJoin(gameName);
 
     const properties: GameInstanceProperties = {
       gameName,

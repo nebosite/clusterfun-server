@@ -3,6 +3,7 @@ import express_ws from "express-ws";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import { ClusterFunEventType, ServerModel } from "./models/ServerModel.js";
+import { PopularityStore, defaultPopularityPath } from "./models/PopularityStore.js";
 import bodyParser from "body-parser";
 import { Logger } from "./helpers/consoleHelpers.js";
 import { ApiHandler } from "./apis/ApiHandlers.js";
@@ -39,7 +40,14 @@ for (let arg of process.argv.slice(2)) {
 // ---------------------------------------------------------------------------------
 // Set up models and base logic
 // ---------------------------------------------------------------------------------
-const serverModel = new ServerModel(logger);
+// The play counts live outside the deploy folder on purpose: deployit.sh
+// deletes and recreates that wholesale, which would wipe them on every deploy.
+// Override the location with CLUSTERFUN_ANALYTICS_PATH.
+const popularityStore = new PopularityStore(defaultPopularityPath(), undefined, (line: string) =>
+  logger.logLine(line),
+);
+logger.logLine(`Game popularity counts: ${defaultPopularityPath()}`);
+const serverModel = new ServerModel(logger, popularityStore);
 const api = new ApiHandler(serverModel, logger);
 
 //--------------------------------------------------------------------------------------
@@ -78,6 +86,7 @@ clusterFunApp.post("/api/joingame", api.joinGame);
 clusterFunApp.post("/api/terminategame", api.terminateGame);
 clusterFunApp.get("/api/am_i_healthy", api.showHealth);
 clusterFunApp.get("/api/game_manifest", api.getGameManifest);
+clusterFunApp.get("/api/game_popularity", api.getGamePopularity);
 
 clusterFunApp_ws.app.ws("/talk/:roomId/:personalId", api.handleSocket);
 
@@ -102,6 +111,10 @@ app.use(clusterFunApp);
 // Message handling for the process
 // ---------------------------------------------------------------------------------
 process.on("exit", function () {
+  // Write out any play counts still only in memory.  The store debounces its
+  // writes, so a shutdown inside that window would otherwise lose them - and a
+  // deploy restarts this process every time.
+  serverModel.popularity.flush();
   logger.logLine(`*** PROCESS ${process.pid} EXIT`);
 });
 
