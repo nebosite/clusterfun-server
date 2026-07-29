@@ -105,6 +105,7 @@ export class ApiHandler {
         { name: "Lexible", displayName: "Lexible", tags: ["alpha"] },
         { name: "RetroSpectro", displayName: "Retro Spectro", tags: ["alpha"] },
         { name: "Eittris", displayName: "EITtris", tags: ["beta"] },
+        { name: "OneOhOne", displayName: "101", tags: ["alpha"] },
         { name: "Stressato", displayName: "Stress Test", tags: ["debug"] },
       ];
     });
