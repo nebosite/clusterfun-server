@@ -2,6 +2,7 @@ import { Logger } from "../helpers/consoleHelpers.js";
 import { ServerModel } from "../models/ServerModel.js";
 import { Request, Response } from "express";
 import { WebSocket } from "ws";
+import { UserError } from "../helpers/errors.js";
 
 const CLOSECODE_POLICY_VIOLATION = 1008;
 const CLOSECODE_WRONG_DATA = 1003;
@@ -9,25 +10,8 @@ const CLOSECODE_WRONG_DATA = 1003;
 const WEBSOCKET_PROTOCOL_HEADER = "sec-websocket-protocol";
 const SECRET_PREFIX = "Secret";
 
-// ---------------------------------------------------------------------------------
-// UserError - throw a UserError if you want the error text to make it back to the user
-// ---------------------------------------------------------------------------------
-export class UserError {
-  message: string;
-  constructor(message: string) {
-    this.message = message;
-  }
-}
-
-// ---------------------------------------------------------------------------------
-// AuthorizationError - throw an AuthorizationError for auth problems
-// ---------------------------------------------------------------------------------
-export class AuthorizationError {
-  message: string;
-  constructor(message: string) {
-    this.message = message;
-  }
-}
+// Re-exported so the many existing importers of ApiHandlers keep working
+export { UserError, AuthorizationError } from "../helpers/errors.js";
 
 export class ApiHandler {
   serverModel: ServerModel;

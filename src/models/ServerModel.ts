@@ -9,6 +9,7 @@ import {
 import { GameInstanceProperties } from "../libs/config/GameInstanceProperties.js";
 import { PopularityStore } from "./PopularityStore.js";
 import os from "os";
+import { UserError } from "../helpers/errors.js";
 
 const cores = os.cpus();
 
@@ -355,15 +356,18 @@ export class ServerModel {
   joinPersonToRoom(name: string, playerId: string, playerSecret: string, roomId: string) {
     this.logger.logLine(`Join: Room: ${roomId}, Player: ${playerId}, Name: ${name}`);
 
-    if (!this.rooms.has(roomId)) {
-      this.logEvent(ClusterFunEventType.GeneralError, undefined, "Join invalid room id");
-      throw new Error("Join invalid room id");
-    }
-
+    // A code that is simply not open is the single most common join failure -
+    // a typo, or a room that was purged after an hour idle.  It used to throw a
+    // plain Error, which safeCall turns into a 500 "server error, reference
+    // timecode": indistinguishable from a real crash, and the reason was only
+    // visible in this server's log.  As a UserError it comes back as a 400 with
+    // a message the player can act on.
     const room = this.rooms.get(roomId);
     if (!room) {
-      this.logEvent(ClusterFunEventType.GeneralError, undefined, "Join missing game");
-      throw new Error("Join missing game");
+      this.logEvent(ClusterFunEventType.BadJoin, undefined, `Join: no open room ${roomId}`);
+      throw new UserError(
+        `Room ${roomId} is not open. Check the code on the big screen - and note that a room closes after an hour of quiet.`,
+      );
     }
 
     room.addEndpoint(playerId, playerSecret, name);
