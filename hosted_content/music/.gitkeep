@@ -1,0 +1,8 @@
+Background music goes in this folder - see clusterfun-client/docs/music.md.
+
+The audio itself is deliberately not in git: it is large and it is not source.  This
+file only exists so the folder does, because conan.json copies hosted_content into
+every deploy and the copy would fail on a fresh clone with no folder here.
+
+Drop .m4a files in and they show up - the manifest at /music/music.json is generated
+from whatever is present, so there is nothing else to edit.

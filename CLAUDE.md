@@ -79,20 +79,26 @@ clusterfun_server_main.ts   Entry: express app, routes, vhosts, background purge
 - Errors: throw `UserError` for a message that should reach the user (→ HTTP 400); other
   throws become a 500 with a timecode. `safeCall` wraps every HTTP handler.
 
-### Background music (`helpers/musicFolder.ts`)
+### Background music (`models/MusicCatalog.ts`, `helpers/musicFolder.ts`)
 
-The relay hosts the game music itself rather than leaning on a third party, which means the
-client fetches it same-origin and there is no CORS to configure.
+The relay hosts the game music itself rather than leaning on a third party, so the client
+fetches it same-origin and there is no CORS to configure.
 
-- Files live in **`~/music`** (override with `CLUSTERFUN_MUSIC_PATH`), served at `/music`.
-  Like the popularity file, the folder is **outside the deploy folder** — `deployit.sh`
-  deletes and recreates `deploy` wholesale, so anything in there is wiped every deploy.
-- `music.json` is served **`no-cache`** and everything else `immutable, max-age=1y`. Track
-  filenames carry a content hash, so a replacement is a new file plus a manifest edit — which
-  is what lets music be swapped with no rebuild and no deploy, without disturbing a game
-  that is already running.
-- A missing folder simply 404s. The client treats that as "no music" and plays on.
-- The client half, the encoding recipe and the upload procedure are in
+- Files live in **`hosted_content/music`**, which **ships with the deploy** (`conan.json`
+  copies `hosted_content` into the deploy folder). The audio is gitignored; the folder is
+  not, because the copy would fail on a fresh clone with nothing there — hence
+  `hosted_content/music/.gitkeep`. `CLUSTERFUN_MUSIC_PATH` overrides the location, and
+  `env.dev` uses it to point a dev server at the repo copy.
+- **The manifest is generated, not stored.** `GET /music/music.json` lists whatever audio is
+  in the folder right now, so adding a song is exactly one step - drop the file in - and
+  nothing can drift out of sync with what is on disk.
+- Each track carries a **content hash** (SHA-256, first 12 hex, cached against size+mtime so
+  it costs one pass per file per change). The client puts it in the track URL as `?v=`, which
+  is what lets the audio be served `immutable, max-age=1y` and still be replaceable by
+  overwriting the file. `music.json` itself is `no-cache`.
+- A missing folder simply yields an empty track list. The client treats that as "no music"
+  and plays on.
+- The client half, the encoding recipe and the host's volume controls are in
   [../clusterfun-client/docs/music.md](../clusterfun-client/docs/music.md).
 
 ### Game popularity (`models/PopularityStore.ts`)

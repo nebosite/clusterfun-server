@@ -2,6 +2,11 @@
 deployme
 deploy_candidate
 .VSCodeCounter
+# Hosted content: media the server hands out (background music).  The FOLDER is
+# tracked - conan.json copies it into every deploy, so it has to exist in a fresh
+# clone - but the media inside it is large, is not source, and stays out of git.
+hosted_content/music/*
+!hosted_content/music/.gitkeep
 
 # Logs
 logs

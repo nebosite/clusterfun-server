@@ -7,7 +7,12 @@ import { PopularityStore, defaultPopularityPath } from "./models/PopularityStore
 import bodyParser from "body-parser";
 import { Logger } from "./helpers/consoleHelpers.js";
 import { ApiHandler } from "./apis/ApiHandlers.js";
-import { defaultMusicFolder, musicCacheControl } from "./helpers/musicFolder.js";
+import {
+  defaultMusicFolder,
+  musicCacheControl,
+  MUSIC_MANIFEST_NAME,
+} from "./helpers/musicFolder.js";
+import { MusicCatalog } from "./models/MusicCatalog.js";
 import { version as VERSION } from "./version.js";
 
 //--------------------------------------------------------------------------------------
@@ -92,12 +97,18 @@ clusterFunApp.get("/api/game_popularity", api.getGamePopularity);
 clusterFunApp_ws.app.ws("/talk/:roomId/:personalId", api.handleSocket);
 
 // Background music, served by us rather than a third party so there is no other service to
-// depend on and no CORS to configure - it is the same origin as the app.  The folder sits
-// outside the deploy folder (deployit.sh wipes that), so tracks survive deploys and can be
-// added or replaced by dropping files in, with no rebuild.  A missing folder simply 404s,
-// which the client treats as "no music".
-const musicFolder = defaultMusicFolder();
+// depend on and no CORS to configure - it is the same origin as the app.  Adding music is
+// one step: put a file in hosted_content/music.  The manifest is generated from whatever is
+// in there, so there is nothing to keep in sync, and a missing folder is simply a server
+// with no music.
+const musicFolder = defaultMusicFolder(__dirname);
+const musicCatalog = new MusicCatalog(musicFolder);
 logger.logLine("Serving background music from " + musicFolder);
+clusterFunApp.get(`/music/${MUSIC_MANIFEST_NAME}`, (req, res) => {
+  // The one music URL that changes: it must be re-validated, or a new track never appears.
+  res.setHeader("Cache-Control", "no-cache");
+  res.json(musicCatalog.build());
+});
 clusterFunApp.use(
   "/music",
   express.static(musicFolder, {

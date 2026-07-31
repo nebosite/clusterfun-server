@@ -4,26 +4,53 @@ import * as path from "path";
 import * as os from "os";
 import { defaultMusicFolder, musicCacheControl, MUSIC_MANIFEST_NAME } from "./musicFolder.js";
 
+// Run a check with CLUSTERFUN_MUSIC_PATH set to something, or to nothing, and put the
+// environment back afterwards whichever way it goes.
+function withMusicPath(value: string | undefined, check: () => void) {
+  const saved = process.env.CLUSTERFUN_MUSIC_PATH;
+  if (value === undefined) delete process.env.CLUSTERFUN_MUSIC_PATH;
+  else process.env.CLUSTERFUN_MUSIC_PATH = value;
+  try {
+    check();
+  } finally {
+    if (saved === undefined) delete process.env.CLUSTERFUN_MUSIC_PATH;
+    else process.env.CLUSTERFUN_MUSIC_PATH = saved;
+  }
+}
+
 describe("music folder", () => {
-  test("defaults to ~/music, next to the app rather than inside the deploy", () => {
-    const saved = process.env.CLUSTERFUN_MUSIC_PATH;
-    delete process.env.CLUSTERFUN_MUSIC_PATH;
-    try {
-      assert.strictEqual(defaultMusicFolder(), path.join(os.homedir(), "music"));
-    } finally {
-      if (saved !== undefined) process.env.CLUSTERFUN_MUSIC_PATH = saved;
-    }
+  test("defaults to hosted_content/music inside the app, so it ships with the deploy", () => {
+    withMusicPath(undefined, () =>
+      assert.strictEqual(
+        defaultMusicFolder("/srv/clusterfun"),
+        path.join("/srv/clusterfun", "hosted_content", "music"),
+      ),
+    );
   });
 
-  test("can be pointed somewhere else for a dev box", () => {
-    const saved = process.env.CLUSTERFUN_MUSIC_PATH;
-    process.env.CLUSTERFUN_MUSIC_PATH = path.join("C:", "temp", "music");
-    try {
-      assert.strictEqual(defaultMusicFolder(), path.join("C:", "temp", "music"));
-    } finally {
-      if (saved === undefined) delete process.env.CLUSTERFUN_MUSIC_PATH;
-      else process.env.CLUSTERFUN_MUSIC_PATH = saved;
-    }
+  test("a relative override is relative to the app, which is how dev finds the repo copy", () => {
+    const appRoot = path.join("/repo", "clusterfun-server", "src");
+    withMusicPath("../hosted_content/music", () =>
+      assert.strictEqual(
+        defaultMusicFolder(appRoot),
+        // path.resolve, not join: on Windows it stamps the current drive onto a
+        // rooted path, and the expectation has to do the same to match.
+        path.resolve(path.join("/repo", "clusterfun-server", "hosted_content", "music")),
+      ),
+    );
+  });
+
+  test("an absolute override wins outright", () => {
+    const elsewhere = path.resolve(path.join("/mnt", "bigdisk", "music"));
+    withMusicPath(elsewhere, () =>
+      assert.strictEqual(defaultMusicFolder("/srv/clusterfun"), elsewhere),
+    );
+  });
+
+  test("with no app root at all it falls back to the home directory", () => {
+    withMusicPath(undefined, () =>
+      assert.strictEqual(defaultMusicFolder(), path.join(os.homedir(), "hosted_content", "music")),
+    );
   });
 });
 
