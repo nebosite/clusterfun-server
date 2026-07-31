@@ -8,6 +8,7 @@ import {
 } from "../helpers/id-codes.js";
 import { GameInstanceProperties } from "../libs/config/GameInstanceProperties.js";
 import { PopularityStore } from "./PopularityStore.js";
+import { HealthMetrics, HealthWindow } from "./HealthMetrics.js";
 import os from "os";
 import { UserError } from "../helpers/errors.js";
 
@@ -58,8 +59,10 @@ export class ServerModel {
 
   startTime = Date.now();
 
-  events = [] as EventRecord[];
-  maxEventCount = 1000000; // 1M events
+  // What the server has been doing lately, in fixed buckets over the last week.  This
+  // replaced an array of every event ever logged, which grew to a million records and then
+  // discarded the oldest fifth - so under load it lost exactly the history worth having.
+  readonly health = new HealthMetrics();
   summarySegment = new Map<string, { count: number; sum: number }>();
   get activeRoomCount() {
     return this.rooms.size;
@@ -90,6 +93,9 @@ export class ServerModel {
       this._trackedUsage.user = this._trackedUsage.user * 0.3 + newUser * 0.7;
       this._trackedUsage.system = this._trackedUsage.system * 0.3 + newSystem * 0.7;
       lastUsage = currentUsage;
+      // The raw reading for this interval, not the smoothed one - averaging an already
+      // smoothed value over a window would flatten every spike out of existence.
+      this.health.sampleResources((newUser + newSystem) * 100, process.memoryUsage().rss);
     }, secondsPerInterval * 1000);
   }
 
@@ -102,12 +108,22 @@ export class ServerModel {
     info: string | undefined = undefined,
   ) {
     const newRecord: EventRecord = { event, time: Date.now(), value, info };
-    this.events.push(newRecord);
     this.addToSegment(this.summarySegment, newRecord);
 
-    // If we go over max events, dump the oldest ones
-    if (this.events.length > this.maxEventCount) {
-      this.events = this.events.slice(Math.floor(this.events.length * 0.2));
+    switch (event) {
+      case ClusterFunEventType.MessageSend:
+        this.health.recordSentMessage(value ?? 0);
+        break;
+      case ClusterFunEventType.MessageReceive:
+        this.health.recordReceivedMessage(value ?? 0);
+        break;
+      case ClusterFunEventType.BadJoin:
+        this.health.recordInvalidRoomJoin();
+        break;
+      case ClusterFunEventType.GeneralError:
+      case ClusterFunEventType.BadRoomCreation:
+        this.health.recordError();
+        break;
     }
   }
 
@@ -149,17 +165,9 @@ export class ServerModel {
   };
 
   //------------------------------------------------------------------------------------------
-  //
+  // How long this process has been up, as "days hh:mm:ss".
   //------------------------------------------------------------------------------------------
-  getHealthData(earliestTime: number, span: number, latestTime: number | undefined = undefined) {
-    if (!latestTime) latestTime = Date.now();
-    if (span < 1000) span = 1000; // prevent DOS by asking for really short spans
-    if (latestTime < earliestTime) latestTime = earliestTime; // ensure times are in order
-
-    // prevent dos by picking a time that is too early
-    const dosTimeBoundary = latestTime - span * 200; // Max 200 data points
-    if (earliestTime < dosTimeBoundary) earliestTime = dosTimeBoundary;
-
+  get uptimeText(): string {
     let upTime = Date.now() - this.startTime;
     const msPerDay = 1000 * 3600 * 24;
     const days = Math.floor(upTime / msPerDay);
@@ -170,9 +178,16 @@ export class ServerModel {
     const minutes = Math.floor(upTime / 60000);
     upTime %= 60000;
     const seconds = Math.floor(upTime / 1000);
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    return `${days} ${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+  }
 
+  //------------------------------------------------------------------------------------------
+  // The instantaneous side of the health report: what is going on in this second.
+  //------------------------------------------------------------------------------------------
+  get roomSummary() {
     const allRooms = Array.from(this.rooms.values());
-    const currentRoomSummary = {
+    return {
       roomCount: this.rooms.size,
       activeRooms: allRooms.reduce((total, room) => total + (room.isActive ? 1 : 0), 0),
       activeUsers: allRooms.reduce(
@@ -180,47 +195,39 @@ export class ServerModel {
         0,
       ),
     };
+  }
 
-    const reportSegments = new Map<number, Map<string, { count: number; sum: number }>>();
-
-    const key = (dateValue: number, span: number) => Math.floor(dateValue / span) * span;
-
-    for (let i = this.events.length - 1; i >= 0; i--) {
-      const ev = this.events[i];
-      if (ev.time < earliestTime) break;
-      if (ev.time <= latestTime) {
-        const shortKey = key(ev.time, span);
-        if (!reportSegments.has(shortKey))
-          reportSegments.set(shortKey, new Map<string, { count: number; sum: number }>());
-        const segment = reportSegments.get(shortKey)!;
-        this.addToSegment(segment, ev);
-      }
-    }
-
-    const series = Array.from(reportSegments.keys())
-      .map((date) => {
-        return { date, segments: reportSegments.get(date)! };
-      })
-      .map((s) => {
-        return {
-          date: s.date,
-          columns: Array.from(s.segments.keys()).map((sk) => ({
-            label: sk,
-            data: s.segments.get(sk)!,
-          })),
-        };
-      })
-      .sort((a, b) => a.date - b.date);
-
+  //------------------------------------------------------------------------------------------
+  // Everything the health page shows: the windowed metrics plus the live counts.
+  //------------------------------------------------------------------------------------------
+  getHealthReport(): {
+    version: string;
+    uptime: string;
+    windows: HealthWindow[];
+    rooms: { roomCount: number; activeRooms: number; activeUsers: number };
+  } {
     return {
       version: VERSION,
-      uptime: `${days} ${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`,
-      rooms: currentRoomSummary,
+      uptime: this.uptimeText,
+      windows: this.health.report(),
+      rooms: this.roomSummary,
+    };
+  }
+
+  //------------------------------------------------------------------------------------------
+  // The same numbers as JSON, for the Stressato load-test game, which watches the server
+  // while it hammers it.  The health page is for people; this is for a program.
+  //------------------------------------------------------------------------------------------
+  getHealthData() {
+    return {
+      version: VERSION,
+      uptime: this.uptimeText,
+      rooms: this.roomSummary,
       summary: Array.from(this.summarySegment.keys()).map((sk) => ({
         label: sk,
         data: this.summarySegment.get(sk)!,
       })),
-      series,
+      windows: this.health.report(),
       cpuUsage: this._trackedUsage,
       memoryUsage: process.memoryUsage(),
     };

@@ -91,6 +91,7 @@ clusterFunApp.post("/api/startgame", api.startGame);
 clusterFunApp.post("/api/joingame", api.joinGame);
 clusterFunApp.post("/api/terminategame", api.terminateGame);
 clusterFunApp.get("/api/am_i_healthy", api.showHealth);
+clusterFunApp.get("/api/health_data", api.getHealthData);
 clusterFunApp.get("/api/game_manifest", api.getGameManifest);
 clusterFunApp.get("/api/game_popularity", api.getGamePopularity);
 

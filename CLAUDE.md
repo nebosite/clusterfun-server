@@ -16,8 +16,8 @@ all state is in-memory and ephemeral.
    message _header_ (sender + receiver) and forwards the opaque payload to the target
    participant's socket. It never inspects or understands message bodies.
 3. **Static hosting** — serves the built client at `/`.
-4. **Health/telemetry** — aggregates event counts (messages, errors, requests), CPU/memory,
-   room/user counts, exposed via `/api/am_i_healthy`.
+4. **Health/telemetry** — counts traffic and errors into ten-second buckets covering a week,
+   samples CPU/memory, and renders it as an HTML page at `/api/am_i_healthy`.
 
 ## Architecture
 
@@ -42,7 +42,8 @@ clusterfun_server_main.ts   Entry: express app, routes, vhosts, background purge
 | `POST /api/startgame`          | `startGame`         | Create (or reuse) a room for a game; returns presenter identity. |
 | `POST /api/joingame`           | `joinGame`          | Join a room by code + player name; returns client identity.      |
 | `POST /api/terminategame`      | `terminateGame`     | Presenter ends the game (validated by `presenterSecret`).        |
-| `GET /api/am_i_healthy`        | `showHealth`        | Health/metrics JSON (used by deploy sanity check).               |
+| `GET /api/am_i_healthy`        | `showHealth`        | Health **page** (HTML). Also what the deploy sanity check polls. |
+| `GET /api/health_data`         | `getHealthData`     | The same numbers as JSON, for the Stressato load test.           |
 | `GET /api/game_manifest`       | `getGameManifest`   | **Hardcoded** list of games shown in the production lobby.       |
 | `GET /api/game_popularity`     | `getGamePopularity` | Per-game play counts; the lobby orders its list by these.        |
 | `GET /music/*`                 | `express.static`    | Background music files (see below).                              |
@@ -100,6 +101,24 @@ fetches it same-origin and there is no CORS to configure.
   and plays on.
 - The client half, the encoding recipe and the host's volume controls are in
   [../clusterfun-client/docs/music.md](../clusterfun-client/docs/music.md).
+
+### Health (`models/HealthMetrics.ts`, `helpers/healthPage.ts`)
+
+`GET /api/am_i_healthy` is a self-contained HTML page — no scripts, no external requests —
+because it gets opened on a phone, over the tunnel, while something is going wrong. It shows
+traffic, errors, CPU and memory over **1 min / 10 min / 1 hour / 24 hours / 1 week**, plus a
+small table of room and user counts right now.
+
+- `HealthMetrics` keeps counts in fixed **ten-second buckets** in a ring covering a week
+  (typed arrays, so no per-bucket allocation and a constant few MB). A window is the sum of
+  its buckets; CPU and memory are averaged, and a window nobody sampled reports `–` rather
+  than a zero it never measured.
+- This replaced an array of every event ever logged, which grew to a million records and then
+  dropped the oldest fifth — so a busy hour silently discarded the history worth reporting.
+- **History does not survive a restart**, like everything else on this server.
+- The page must keep the lower-case word `version` in it: `conan.json`'s sanity check greps
+  for it to decide the server came back up after a deploy. There is a test for that.
+- `GET /api/health_data` serves the same numbers as JSON for the Stressato load-test game.
 
 ### Game popularity (`models/PopularityStore.ts`)
 

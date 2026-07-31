@@ -3,6 +3,7 @@ import { ServerModel } from "../models/ServerModel.js";
 import { Request, Response } from "express";
 import { WebSocket } from "ws";
 import { UserError } from "../helpers/errors.js";
+import { renderHealthPage } from "../helpers/healthPage.js";
 
 const CLOSECODE_POLICY_VIOLATION = 1008;
 const CLOSECODE_WRONG_DATA = 1003;
@@ -55,14 +56,25 @@ export class ApiHandler {
   //--------------------------------------------------------------------------------------
   //
   //--------------------------------------------------------------------------------------
+  // A page rather than a payload: this is the thing somebody opens on their phone when
+  // they want to know whether the server is unwell, so it renders itself.
   showHealth = (req: Request, res: Response) => {
-    this.safeCall(req, res, "ShowHealth", async () => {
-      let span = req.query.span ? Number.parseInt(req.query.span as string) : 60000;
-      let latest = req.query.latest ? Date.parse(req.query.latest as string) : Date.now();
-      let earliest = req.query.earliest ? Date.parse(req.query.earliest as string) : 0;
+    try {
+      const report = this.serverModel.getHealthReport();
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.end(renderHealthPage({ ...report, generatedAt: new Date().toISOString() }));
+    } catch (err) {
+      const timecode = Date.now();
+      this.logger.logError(`Error at timecode ${timecode} on ShowHealth: ${err}`);
+      res.status(500).setHeader("Content-Type", "text/html; charset=utf-8");
+      res.end(`<h1>Health page failed</h1><p>Reference timecode ${timecode}</p>`);
+    }
+  };
 
-      return this.serverModel.getHealthData(earliest, span, latest);
-    });
+  // The same numbers as JSON, for the Stressato load-test game.
+  getHealthData = (req: Request, res: Response) => {
+    this.safeCall(req, res, "GetHealthData", async () => this.serverModel.getHealthData());
   };
 
   //--------------------------------------------------------------------------------------
