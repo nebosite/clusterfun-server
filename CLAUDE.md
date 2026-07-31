@@ -45,6 +45,7 @@ clusterfun_server_main.ts   Entry: express app, routes, vhosts, background purge
 | `GET /api/am_i_healthy`        | `showHealth`        | Health/metrics JSON (used by deploy sanity check).               |
 | `GET /api/game_manifest`       | `getGameManifest`   | **Hardcoded** list of games shown in the production lobby.       |
 | `GET /api/game_popularity`     | `getGamePopularity` | Per-game play counts; the lobby orders its list by these.        |
+| `GET /music/*`                 | `express.static`    | Background music files (see below).                              |
 | `WS /talk/:roomId/:personalId` | `handleSocket`      | The relay socket.                                                |
 
 > **Adding a game to production** means editing the hardcoded array in `getGameManifest`
@@ -77,6 +78,22 @@ clusterfun_server_main.ts   Entry: express app, routes, vhosts, background purge
   do not treat server state as durable.
 - Errors: throw `UserError` for a message that should reach the user (→ HTTP 400); other
   throws become a 500 with a timecode. `safeCall` wraps every HTTP handler.
+
+### Background music (`helpers/musicFolder.ts`)
+
+The relay hosts the game music itself rather than leaning on a third party, which means the
+client fetches it same-origin and there is no CORS to configure.
+
+- Files live in **`~/music`** (override with `CLUSTERFUN_MUSIC_PATH`), served at `/music`.
+  Like the popularity file, the folder is **outside the deploy folder** — `deployit.sh`
+  deletes and recreates `deploy` wholesale, so anything in there is wiped every deploy.
+- `music.json` is served **`no-cache`** and everything else `immutable, max-age=1y`. Track
+  filenames carry a content hash, so a replacement is a new file plus a manifest edit — which
+  is what lets music be swapped with no rebuild and no deploy, without disturbing a game
+  that is already running.
+- A missing folder simply 404s. The client treats that as "no music" and plays on.
+- The client half, the encoding recipe and the upload procedure are in
+  [../clusterfun-client/docs/music.md](../clusterfun-client/docs/music.md).
 
 ### Game popularity (`models/PopularityStore.ts`)
 

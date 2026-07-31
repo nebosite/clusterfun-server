@@ -7,6 +7,7 @@ import { PopularityStore, defaultPopularityPath } from "./models/PopularityStore
 import bodyParser from "body-parser";
 import { Logger } from "./helpers/consoleHelpers.js";
 import { ApiHandler } from "./apis/ApiHandlers.js";
+import { defaultMusicFolder, musicCacheControl } from "./helpers/musicFolder.js";
 import { version as VERSION } from "./version.js";
 
 //--------------------------------------------------------------------------------------
@@ -89,6 +90,20 @@ clusterFunApp.get("/api/game_manifest", api.getGameManifest);
 clusterFunApp.get("/api/game_popularity", api.getGamePopularity);
 
 clusterFunApp_ws.app.ws("/talk/:roomId/:personalId", api.handleSocket);
+
+// Background music, served by us rather than a third party so there is no other service to
+// depend on and no CORS to configure - it is the same origin as the app.  The folder sits
+// outside the deploy folder (deployit.sh wipes that), so tracks survive deploys and can be
+// added or replaced by dropping files in, with no rebuild.  A missing folder simply 404s,
+// which the client treats as "no music".
+const musicFolder = defaultMusicFolder();
+logger.logLine("Serving background music from " + musicFolder);
+clusterFunApp.use(
+  "/music",
+  express.static(musicFolder, {
+    setHeaders: (res, filePath) => res.setHeader("Cache-Control", musicCacheControl(filePath)),
+  }),
+);
 
 const clientPath = process.env.CLUSTERFUN_DEV_CLIENT_PATH ?? "client";
 const clusterfunRootFolder = path.join(__dirname, clientPath);
