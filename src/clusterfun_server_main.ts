@@ -13,6 +13,7 @@ import {
   MUSIC_MANIFEST_NAME,
 } from "./helpers/musicFolder.js";
 import { MusicCatalog } from "./models/MusicCatalog.js";
+import { trafficMeter } from "./helpers/trafficMeter.js";
 import { version as VERSION } from "./version.js";
 
 //--------------------------------------------------------------------------------------
@@ -76,6 +77,9 @@ if (killPath) {
     process.exit(0);
   });
 }
+
+// First in the chain, so it sees every response including static files and music.
+clusterFunApp.use(trafficMeter((received, sent) => serverModel.reportHttpExchange(received, sent)));
 
 clusterFunApp.use(bodyParser.json());
 clusterFunApp.use(function (req, res, next) {

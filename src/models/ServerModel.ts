@@ -151,6 +151,16 @@ export class ServerModel {
   // A message that could not be handed to anybody: the recipient's socket is gone.  Counted
   // as an error rather than as traffic, because no bytes left the box.
   //------------------------------------------------------------------------------------------
+  //------------------------------------------------------------------------------------------
+  // One HTTP exchange.  Counted alongside relay traffic because it IS traffic - the client
+  // bundle and the music tracks are the largest things this box sends, and leaving them out
+  // was what made bytes-out look identical to bytes-in.
+  //------------------------------------------------------------------------------------------
+  reportHttpExchange(receivedBytes: number, sentBytes: number) {
+    this.health.recordReceivedMessage(receivedBytes);
+    this.health.recordSentMessage(sentBytes);
+  }
+
   reportUndeliveredMessage(reason: string) {
     this.logEvent(ClusterFunEventType.GeneralError, undefined, `undelivered: ${reason}`);
   }
