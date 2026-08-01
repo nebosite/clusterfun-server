@@ -27,6 +27,9 @@ export class Room {
   presenterId: string;
   game: string;
   lastMessageTime = Date.now();
+  // When somebody last had a socket open here.  Kept separate from lastMessageTime so an
+  // empty room can be told apart from a quiet one.
+  private lastConnectedTime = Date.now();
   logger: Logger;
   idle = false;
   serverModel: ServerModel;
@@ -34,6 +37,25 @@ export class Room {
   // Active means any messages in the last 10 minutes
   get isActive() {
     return Date.now() - this.lastMessageTime < ONE_HOUR;
+  }
+
+  /** How many participants - presenter included - currently hold a socket. */
+  get connectionCount() {
+    return Array.from(this.endpoints.values()).reduce(
+      (total: number, ep: Endpoint) => total + (ep.socket != null ? 1 : 0),
+      0,
+    );
+  }
+
+  /**
+   * A room nobody has been connected to for a while.  "Recent traffic" is not enough to
+   * call a room live: every game anyone has opened in the last hour looked active, so a
+   * few minutes of testing left the health page claiming seven rooms when one was in use.
+   * A grace period rather than an instant check, because refreshing the presenter drops
+   * every socket for a moment and that must not bin the game.
+   */
+  isAbandoned(graceMs: number) {
+    return this.connectionCount === 0 && Date.now() - this.lastConnectedTime > graceMs;
   }
 
   get userCount() {
@@ -98,6 +120,7 @@ export class Room {
   // setSocket
   //------------------------------------------------------------------------------------------
   setSocket(id: string, allegedSecret: string, socket: WebSocket) {
+    this.lastConnectedTime = Date.now();
     const endpoint = this.endpoints.get(id);
     if (!endpoint) {
       throw new Error(`setSocket couldn't find player with id ${id}, in room ${this.id}`);

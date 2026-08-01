@@ -14,6 +14,10 @@ import { UserError } from "../helpers/errors.js";
 
 const cores = os.cpus();
 
+// How long a room with nobody connected is kept before it is dropped.  Long enough that
+// refreshing the presenter - which closes every socket for a moment - never loses a game.
+export const ABANDONED_ROOM_MS = 5 * 60 * 1000;
+
 // What a message actually costs on the wire.  String length is UTF-16 code units, which
 // undercounts the moment a player types a name with an accent or an emoji in it.
 function messageBytes(message: string): number {
@@ -213,7 +217,9 @@ export class ServerModel {
     const allRooms = Array.from(this.rooms.values());
     return {
       roomCount: this.rooms.size,
-      activeRooms: allRooms.reduce((total, room) => total + (room.isActive ? 1 : 0), 0),
+      // "Active" means somebody is actually connected, not merely that the room saw a
+      // message some time in the last hour - which counted every game opened all evening.
+      activeRooms: allRooms.reduce((total, room) => total + (room.connectionCount > 0 ? 1 : 0), 0),
       activeUsers: allRooms.reduce(
         (total, room) => (total += room.isActive ? room.userCount : 0),
         0,
@@ -418,7 +424,12 @@ export class ServerModel {
   //------------------------------------------------------------------------------------------
   purgeInactiveRooms() {
     this.logger.logLine("Purging rooms...");
-    const purgeMe = Array.from(this.rooms.values()).filter((r) => !r.isActive);
+    // Two ways to go: silent for an hour, or empty for a few minutes.  Without the second
+    // one a room lingers for a full hour after the last person walks away, and the room
+    // count reads as every game anybody opened rather than the ones being played.
+    const purgeMe = Array.from(this.rooms.values()).filter(
+      (r) => !r.isActive || r.isAbandoned(ABANDONED_ROOM_MS),
+    );
     for (const room of purgeMe) {
       this.logger.logLine("Purging inactive room " + room.id);
       this.rooms.delete(room.id);

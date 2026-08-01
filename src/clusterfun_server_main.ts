@@ -162,11 +162,14 @@ process.on("SIGINT", (signal) => {
 // ---------------------------------------------------------------------------------
 // Background tasks
 // ---------------------------------------------------------------------------------
-// Every 10 minutes: Drop a little note in the logs and purge rooms
+// Every minute: drop a little note in the logs and purge rooms.  Once every ten minutes
+// was fine when a room lived for an hour regardless; now that an abandoned room is dropped
+// after five minutes, checking ten-minutely would make the room count lag by more than the
+// grace period it is meant to enforce.
 setInterval(() => {
   logger.logLine(`I am alive: Roomcount:${serverModel.activeRoomCount}`);
   serverModel.purgeInactiveRooms();
-}, 600000);
+}, 60000);
 
 // ---------------------------------------------------------------------------------
 // Let er rip!

@@ -49,23 +49,35 @@ describe("health page", () => {
     assert.match(page(), /version/);
   });
 
-  test("has a row for every metric asked for", () => {
+  test("has a row for every metric asked for, each carrying its own unit", () => {
     const html = page();
     for (const label of [
       "messages sent",
-      "bytes sent",
-      "bytes per message sent",
+      "sent (KB)",
+      "per message sent (KB)",
+      "average sent bandwidth (KB/s)",
       "messages received",
-      "bytes received",
-      "bytes per message received",
-      "average sent bandwidth",
-      "average received bandwidth",
+      "received (KB)",
+      "per message received (KB)",
+      "average received bandwidth (KB/s)",
       "join with invalid room id",
       "errors",
-      "CPU utilization %",
-      "memory (rss) MB",
+      "CPU utilization (%)",
+      "memory rss (KB)",
     ]) {
       assert.ok(html.includes(label), `missing row: ${label}`);
+    }
+  });
+
+  test("puts units in the metric column only - the cells are bare numbers", () => {
+    // Units repeated in every cell make a column impossible to scan down.
+    const html = page({
+      windows: [windowOf("1 min", { bytesSent: 2_500_000, sentBytesPerSecond: 1234 })],
+    });
+    const cells = [...html.matchAll(/<td>([^<]*)<\/td>/g)].map((m) => m[1]);
+    assert.ok(cells.length > 0);
+    for (const cell of cells) {
+      assert.doesNotMatch(cell, /KB|MB|GB|%|\/s/, `cell carried a unit: ${cell}`);
     }
   });
 
@@ -82,17 +94,17 @@ describe("health page", () => {
     assert.match(html, /active users<\/th><td>22<\/td>/);
   });
 
-  test("scales bandwidth the way it scales byte totals", () => {
+  test("reports every size in KB, however big", () => {
     const html = page({
-      windows: [windowOf("1 min", { sentBytesPerSecond: 2500, receivedBytesPerSecond: 3_400_000 })],
+      windows: [windowOf("1 week", { bytesSent: 2_500_000_000, sentBytesPerSecond: 2500 })],
     });
-    assert.ok(html.includes("2.5 KB/s"), "expected KB/s");
-    assert.ok(html.includes("3.40 MB/s"), "expected MB/s");
+    assert.ok(html.includes("2,500,000.0"), "2.5GB as KB, with separators");
+    assert.ok(html.includes("2.50"), "bandwidth in KB/s");
   });
 
-  test("scales big byte counts instead of printing a wall of digits", () => {
-    const html = page({ windows: [windowOf("1 week", { bytesSent: 2_500_000_000 })] });
-    assert.ok(html.includes("2.50 GB"), "expected GB");
+  test("reports memory in KB too", () => {
+    const html = page({ windows: [windowOf("1 min", { memoryRssMb: 259.7 })] });
+    assert.ok(html.includes("259,700"), "MB converted to KB");
   });
 
   test("prints a dash for a gauge nobody sampled", () => {

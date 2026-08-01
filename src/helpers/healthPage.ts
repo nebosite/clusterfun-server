@@ -19,19 +19,17 @@ export interface HealthPageData {
 /** Rows of the big table: one metric each, read across the time windows. */
 const METRIC_ROWS: { label: string; value: (w: HealthWindow) => string }[] = [
   { label: "messages sent", value: (w) => count(w.messagesSent) },
-  { label: "bytes sent", value: (w) => bytes(w.bytesSent) },
-  { label: "bytes per message sent", value: (w) => decimal(w.bytesPerMessageSent) },
-  { label: "average sent bandwidth", value: (w) => rate(w.sentBytesPerSecond) },
+  { label: "sent (KB)", value: (w) => kb(w.bytesSent) },
+  { label: "per message sent (KB)", value: (w) => kb(w.bytesPerMessageSent, 2) },
+  { label: "average sent bandwidth (KB/s)", value: (w) => kb(w.sentBytesPerSecond, 2) },
   { label: "messages received", value: (w) => count(w.messagesReceived) },
-  { label: "bytes received", value: (w) => bytes(w.bytesReceived) },
-  { label: "bytes per message received", value: (w) => decimal(w.bytesPerMessageReceived) },
-  { label: "average received bandwidth", value: (w) => rate(w.receivedBytesPerSecond) },
+  { label: "received (KB)", value: (w) => kb(w.bytesReceived) },
+  { label: "per message received (KB)", value: (w) => kb(w.bytesPerMessageReceived, 2) },
+  { label: "average received bandwidth (KB/s)", value: (w) => kb(w.receivedBytesPerSecond, 2) },
   { label: "join with invalid room id", value: (w) => count(w.invalidRoomJoins) },
   { label: "errors (all kinds)", value: (w) => count(w.errors) },
-  // Two decimals: a relay at rest sits well under 1%, and "0.0" everywhere reads as a
-  // broken metric rather than an idle server.
-  { label: "CPU utilization %", value: (w) => gauge(w.cpuPercent, 2) },
-  { label: "memory (rss) MB", value: (w) => gauge(w.memoryRssMb, 1) },
+  { label: "CPU utilization (%)", value: (w) => gauge(w.cpuPercent, 2) },
+  { label: "memory rss (KB)", value: (w) => gauge(w.memoryRssMb, 0, 1000) },
 ];
 
 export function renderHealthPage(data: HealthPageData): string {
@@ -92,32 +90,28 @@ export function renderHealthPage(data: HealthPageData): string {
 }
 
 // A gauge with no samples in its window is not zero - nobody was looking.  Saying so beats
-// reporting an idle CPU that was never measured.
-function gauge(value: number | undefined, places: number): string {
-  return value === undefined ? "&ndash;" : value.toFixed(places);
+// reporting an idle CPU that was never measured.  `scale` converts the stored unit into the
+// one the row heading promises.
+function gauge(value: number | undefined, places: number, scale = 1): string {
+  if (value === undefined) return "&ndash;";
+  return (value * scale).toLocaleString("en-US", {
+    minimumFractionDigits: places,
+    maximumFractionDigits: places,
+  });
 }
 
 function count(value: number): string {
   return Math.round(value).toLocaleString("en-US");
 }
 
-function decimal(value: number): string {
-  return value.toFixed(1);
-}
-
-// Raw byte counts get unreadable fast at relay volumes, so anything big is scaled.
-function bytes(value: number): string {
-  if (value >= 1e9) return `${(value / 1e9).toFixed(2)} GB`;
-  if (value >= 1e6) return `${(value / 1e6).toFixed(2)} MB`;
-  if (value >= 1e3) return `${(value / 1e3).toFixed(1)} KB`;
-  return count(value);
-}
-
-// Bandwidth, scaled the same way the byte totals are.
-function rate(bytesPerSecond: number): string {
-  if (bytesPerSecond >= 1e6) return `${(bytesPerSecond / 1e6).toFixed(2)} MB/s`;
-  if (bytesPerSecond >= 1e3) return `${(bytesPerSecond / 1e3).toFixed(1)} KB/s`;
-  return `${bytesPerSecond.toFixed(1)} B/s`;
+// Everything to do with size is in KB, said once in the row heading rather than repeated in
+// every cell - a table of numbers is far easier to compare down a column when the numbers
+// are bare and all in the same unit.
+function kb(bytes: number, places = 1): string {
+  return (bytes / 1000).toLocaleString("en-US", {
+    minimumFractionDigits: places,
+    maximumFractionDigits: places,
+  });
 }
 
 function escapeHtml(value: string): string {
