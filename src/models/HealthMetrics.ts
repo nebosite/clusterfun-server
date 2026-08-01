@@ -33,9 +33,12 @@ export interface HealthWindow {
   messagesSent: number;
   bytesSent: number;
   bytesPerMessageSent: number;
+  /** Average bytes per second over the window - what the link actually carried. */
+  sentBytesPerSecond: number;
   messagesReceived: number;
   bytesReceived: number;
   bytesPerMessageReceived: number;
+  receivedBytesPerSecond: number;
   invalidRoomJoins: number;
   errors: number;
   /** Average over the window of the samples taken in it, or undefined if none were. */
@@ -45,6 +48,7 @@ export interface HealthWindow {
 
 export class HealthMetrics {
   private readonly now: () => number;
+  private readonly startedAt: number;
 
   // One array per counter.  Index is the ring slot; `stamp` records which bucket the slot
   // currently holds, so a slot from a week ago is recognised as stale rather than summed.
@@ -63,6 +67,7 @@ export class HealthMetrics {
   // The clock is injectable so the tests can walk a week forward without waiting one.
   constructor(now: () => number = () => Date.now()) {
     this.now = now;
+    this.startedAt = now();
   }
 
   recordSentMessage(bytes: number) {
@@ -138,15 +143,23 @@ export class HealthMetrics {
       rssCount += this.rssCount[slot];
     }
 
+    // Spread the bytes over the time actually covered.  Clamped to how long this process
+    // has been up, or a server five minutes old would report its week-long bandwidth as
+    // near zero - technically true and completely useless for spotting a problem.
+    const coveredMs = Math.max(1, Math.min(ms, now - this.startedAt));
+    const perSecond = (total: number) => (total * 1000) / coveredMs;
+
     return {
       label,
       ms,
       messagesSent,
       bytesSent,
       bytesPerMessageSent: messagesSent > 0 ? bytesSent / messagesSent : 0,
+      sentBytesPerSecond: perSecond(bytesSent),
       messagesReceived,
       bytesReceived,
       bytesPerMessageReceived: messagesReceived > 0 ? bytesReceived / messagesReceived : 0,
+      receivedBytesPerSecond: perSecond(bytesReceived),
       invalidRoomJoins,
       errors,
       cpuPercent: cpuCount > 0 ? cpuSum / cpuCount : undefined,

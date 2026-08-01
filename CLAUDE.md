@@ -120,6 +120,13 @@ small table of room and user counts right now.
   for it to decide the server came back up after a deploy. There is a test for that.
 - `GET /api/health_data` serves the same numbers as JSON for the Stressato load-test game.
 
+**Sent vs received will read the same on a healthy server, and that is correct.** The relay
+forwards each message exactly once, so bytes in equal bytes out by construction. A gap
+between the two rows means messages are being _dropped_ - the recipient's socket has gone -
+and that only became visible once sends were counted after the socket write rather than
+before it. Byte counts are `Buffer.byteLength`, not string length, so a name with an accent
+in it is not undercounted.
+
 ### Game popularity (`models/PopularityStore.ts`)
 
 The one piece of state here that is **not** ephemeral. The relay counts a _play_ every time a

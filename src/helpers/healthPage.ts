@@ -21,9 +21,11 @@ const METRIC_ROWS: { label: string; value: (w: HealthWindow) => string }[] = [
   { label: "messages sent", value: (w) => count(w.messagesSent) },
   { label: "bytes sent", value: (w) => bytes(w.bytesSent) },
   { label: "bytes per message sent", value: (w) => decimal(w.bytesPerMessageSent) },
+  { label: "average sent bandwidth", value: (w) => rate(w.sentBytesPerSecond) },
   { label: "messages received", value: (w) => count(w.messagesReceived) },
   { label: "bytes received", value: (w) => bytes(w.bytesReceived) },
   { label: "bytes per message received", value: (w) => decimal(w.bytesPerMessageReceived) },
+  { label: "average received bandwidth", value: (w) => rate(w.receivedBytesPerSecond) },
   { label: "join with invalid room id", value: (w) => count(w.invalidRoomJoins) },
   { label: "errors (all kinds)", value: (w) => count(w.errors) },
   // Two decimals: a relay at rest sits well under 1%, and "0.0" everywhere reads as a
@@ -109,6 +111,13 @@ function bytes(value: number): string {
   if (value >= 1e6) return `${(value / 1e6).toFixed(2)} MB`;
   if (value >= 1e3) return `${(value / 1e3).toFixed(1)} KB`;
   return count(value);
+}
+
+// Bandwidth, scaled the same way the byte totals are.
+function rate(bytesPerSecond: number): string {
+  if (bytesPerSecond >= 1e6) return `${(bytesPerSecond / 1e6).toFixed(2)} MB/s`;
+  if (bytesPerSecond >= 1e3) return `${(bytesPerSecond / 1e3).toFixed(1)} KB/s`;
+  return `${bytesPerSecond.toFixed(1)} B/s`;
 }
 
 function escapeHtml(value: string): string {

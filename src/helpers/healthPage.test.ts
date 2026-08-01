@@ -10,9 +10,11 @@ function windowOf(label: string, over: Partial<HealthWindow> = {}): HealthWindow
     messagesSent: 0,
     bytesSent: 0,
     bytesPerMessageSent: 0,
+    sentBytesPerSecond: 0,
     messagesReceived: 0,
     bytesReceived: 0,
     bytesPerMessageReceived: 0,
+    receivedBytesPerSecond: 0,
     invalidRoomJoins: 0,
     errors: 0,
     cpuPercent: 0,
@@ -56,6 +58,8 @@ describe("health page", () => {
       "messages received",
       "bytes received",
       "bytes per message received",
+      "average sent bandwidth",
+      "average received bandwidth",
       "join with invalid room id",
       "errors",
       "CPU utilization %",
@@ -76,6 +80,14 @@ describe("health page", () => {
     assert.match(html, /room count<\/th><td>12<\/td>/);
     assert.match(html, /active rooms<\/th><td>8<\/td>/);
     assert.match(html, /active users<\/th><td>22<\/td>/);
+  });
+
+  test("scales bandwidth the way it scales byte totals", () => {
+    const html = page({
+      windows: [windowOf("1 min", { sentBytesPerSecond: 2500, receivedBytesPerSecond: 3_400_000 })],
+    });
+    assert.ok(html.includes("2.5 KB/s"), "expected KB/s");
+    assert.ok(html.includes("3.40 MB/s"), "expected MB/s");
   });
 
   test("scales big byte counts instead of printing a wall of digits", () => {

@@ -146,17 +146,24 @@ export class Room {
   //------------------------------------------------------------------------------------------
   private sendMessageInternal(receiver: string, _sender: string, serializedMessage: string) {
     this.lastMessageTime = Date.now();
-    this.serverModel.reportSentMessage(serializedMessage);
     const endpoint = this.endpoints.get(receiver);
+    // A message is only "sent" once it is actually on a socket.  Counting it before
+    // looking for the recipient made bytes-sent equal bytes-received by construction, and
+    // hid the one thing the pair can usefully tell you: that traffic is going nowhere
+    // because somebody's socket has gone away.
     if (!endpoint) {
       this.logger.logError(`No endpoint found for ${receiver}`);
+      this.serverModel.reportUndeliveredMessage("no endpoint");
     } else if (!endpoint.socket) {
       this.logger.logError(`No socket found for ${receiver}`);
+      this.serverModel.reportUndeliveredMessage("no socket");
     } else {
       try {
         endpoint.socket.send(serializedMessage);
+        this.serverModel.reportSentMessage(serializedMessage);
       } catch (e) {
         console.error("Error encountered while sending message: ", e);
+        this.serverModel.reportUndeliveredMessage("send failed");
       }
     }
   }

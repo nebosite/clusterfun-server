@@ -139,3 +139,35 @@ describe("HealthMetrics - gauges", () => {
     assert.strictEqual(win(metrics, 86_400_000).cpuPercent, 50, "the day still remembers");
   });
 });
+
+describe("HealthMetrics - bandwidth", () => {
+  test("averages the bytes over the time the window actually covers", () => {
+    const { metrics, advance } = atClock();
+    advance(600_000); // let the process be ten minutes old, so nothing is clamped
+    for (let i = 0; i < 6; i++) {
+      metrics.recordSentMessage(1000);
+      metrics.recordReceivedMessage(500);
+      advance(BUCKET_MS);
+    }
+    // 6KB out and 3KB in over the last minute
+    const w = win(metrics, 60_000);
+    assert.strictEqual(Math.round(w.sentBytesPerSecond), 100);
+    assert.strictEqual(Math.round(w.receivedBytesPerSecond), 50);
+  });
+
+  test("a young server does not report its week-long bandwidth as nearly zero", () => {
+    // Ten seconds old, 10KB sent.  Divided by a week that is ~0 B/s and useless; divided by
+    // the ten seconds the process has existed it is the 1KB/s that is actually happening.
+    const { metrics, advance } = atClock();
+    metrics.recordSentMessage(10_000);
+    advance(10_000);
+    assert.strictEqual(Math.round(win(metrics, WEEK_MS).sentBytesPerSecond), 1000);
+  });
+
+  test("is zero when nothing has moved", () => {
+    const { metrics, advance } = atClock();
+    advance(60_000);
+    assert.strictEqual(win(metrics, 60_000).sentBytesPerSecond, 0);
+    assert.strictEqual(win(metrics, 60_000).receivedBytesPerSecond, 0);
+  });
+});

@@ -14,6 +14,12 @@ import { UserError } from "../helpers/errors.js";
 
 const cores = os.cpus();
 
+// What a message actually costs on the wire.  String length is UTF-16 code units, which
+// undercounts the moment a player types a name with an accent or an emoji in it.
+function messageBytes(message: string): number {
+  return Buffer.byteLength(message, "utf8");
+}
+
 interface ExistingRoomInfo {
   id: string;
   presenterId: string;
@@ -131,14 +137,22 @@ export class ServerModel {
   //
   //------------------------------------------------------------------------------------------
   reportSentMessage(message: string) {
-    this.logEvent(ClusterFunEventType.MessageSend, message.length);
+    this.logEvent(ClusterFunEventType.MessageSend, messageBytes(message));
   }
 
   //------------------------------------------------------------------------------------------
   //
   //------------------------------------------------------------------------------------------
   reportRecievedMessage(message: string) {
-    this.logEvent(ClusterFunEventType.MessageReceive, message.length);
+    this.logEvent(ClusterFunEventType.MessageReceive, messageBytes(message));
+  }
+
+  //------------------------------------------------------------------------------------------
+  // A message that could not be handed to anybody: the recipient's socket is gone.  Counted
+  // as an error rather than as traffic, because no bytes left the box.
+  //------------------------------------------------------------------------------------------
+  reportUndeliveredMessage(reason: string) {
+    this.logEvent(ClusterFunEventType.GeneralError, undefined, `undelivered: ${reason}`);
   }
 
   //--------------------------------------------------------------------------------------
