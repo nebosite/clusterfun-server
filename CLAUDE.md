@@ -120,12 +120,16 @@ small table of room and user counts right now.
   for it to decide the server came back up after a deploy. There is a test for that.
 - `GET /api/health_data` serves the same numbers as JSON for the Stressato load-test game.
 
-**Sent vs received will read the same on a healthy server, and that is correct.** The relay
-forwards each message exactly once, so bytes in equal bytes out by construction. A gap
-between the two rows means messages are being _dropped_ - the recipient's socket has gone -
-and that only became visible once sends were counted after the socket write rather than
-before it. Byte counts are `Buffer.byteLength`, not string length, so a name with an accent
-in it is not undercounted.
+**Traffic counts cover HTTP as well as the relay** (`helpers/trafficMeter.ts`, mounted first
+so it sees static files too). That is what makes "bytes sent" mean anything: within the relay
+alone the server forwards each message exactly once, so bytes in equal bytes out by
+construction and the pair tells you nothing. The client bundle and the music tracks are the
+largest things this box sends and they go one way only.
+
+Two smaller rules behind those numbers: byte counts are `Buffer.byteLength`, not string
+length, so a name with an accent in it is not undercounted; and a relay message counts as
+sent only once it is actually on a socket, so a gap between the rows means messages are
+being _dropped_ rather than delivered.
 
 ### Game popularity (`models/PopularityStore.ts`)
 
