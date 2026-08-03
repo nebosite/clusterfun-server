@@ -78,13 +78,17 @@ clusterfun_server_main.ts   Entry: express app, routes, background purge loop
   in Node, so this puts an SD-card write in the relay hot path and grows an unbounded log. See
   the risk register.
 
-> ### ⚠ `ClusterFunMessageHeader` has drifted from the client
+> ### Shared contracts — keep both copies byte-identical
 >
-> `libs/comms/ClusterFunMessageHeader.ts` is a hand-kept copy of the client's file with no sync
-> mechanism, and they no longer match: this copy declares a required **`t: string`** the client
-> lacks, is a `default` export vs the client's named export, and types `id?: string | number`
-> vs the client's `id?: string`. `libs/config/GameInstanceProperties.ts` is duplicated the same
-> way but is currently byte-identical. Treat an edit to either as a two-repo change.
+> `libs/comms/ClusterFunMessageHeader.ts` and `libs/config/GameInstanceProperties.ts` are
+> duplicated in the client, because the two projects are separate repos with no shared
+> package. **They must match exactly**, and `scripts/check-shared-contracts.js` in the root
+> repo enforces it — run by the deploy before it builds anything, or by hand with
+> `npm run check:contracts`.
+>
+> They had drifted: this copy declared a required `t: string` that nothing sent and nothing
+> read, exported it as `default` rather than named, and typed `id` more widely than the client.
+> Treat an edit to either file as a two-repo change.
 
 ### Rooms & lifecycle (`ServerModel` / `Room`)
 

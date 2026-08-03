@@ -1,7 +1,7 @@
 import * as crypto from "crypto";
 import { WebSocket } from "ws";
 import { Logger } from "../helpers/consoleHelpers.js";
-import ClusterFunMessageHeader from "../libs/comms/ClusterFunMessageHeader.js";
+import { ClusterFunMessageHeader } from "../libs/comms/ClusterFunMessageHeader.js";
 import { ServerModel } from "./ServerModel.js";
 
 export interface Endpoint {
