@@ -25,7 +25,7 @@ One `ServerModel` owns a `Map<roomId, Room>`. `ApiHandler` wires HTTP/WS endpoin
 `clusterfun_server_main.ts` is the entry point.
 
 ```
-clusterfun_server_main.ts   Entry: express app, routes, vhosts, background purge loop
+clusterfun_server_main.ts   Entry: express app, routes, background purge loop
   apis/ApiHandlers.ts        HTTP + WebSocket handlers; safeCall wrapper; UserError/AuthorizationError
   models/ServerModel.ts      All rooms; start/join/reuse/clear; health aggregation; event log
   models/Room.ts             One room: endpoints (participants), sockets, message forwarding
@@ -49,21 +49,42 @@ clusterfun_server_main.ts   Entry: express app, routes, vhosts, background purge
 | `GET /music/*`                 | `express.static`    | Background music files (see below).                              |
 | `WS /talk/:roomId/:personalId` | `handleSocket`      | The relay socket.                                                |
 
-> **Adding a game to production** means editing the hardcoded array in `getGameManifest`
-> (currently `Lexible` and `Stressato`). The client must also have the game registered in
-> its release game list. In dev/test lobby, the manifest is bypassed.
+> **Adding a game to production** means editing the hardcoded array in `getGameManifest` —
+> currently six: PartyPix, Lexible, RetroSpectro, Eittris, OneOhOne, Stressato. The client must
+> also have the game in its release list. In dev/test lobby the manifest is bypassed.
+>
+> **This manifest is the only authority on game tags.** The client registry carries no tags at
+> all, so `alpha` / `beta` / `debug` / release (no tag) is decided here and nowhere else, and
+> the manifest's `displayName` also wins when set. Changing how a game is badged is therefore a
+> **server deploy**, not a client build.
+>
+> The lobby renders a badge for `beta`, `alpha` and `debug`, and hides any game whose tags
+> don't intersect its `showTags` (default `production`, `beta`, `alpha`) — which is what keeps
+> `debug`-tagged Stressato out of the public lobby.
 
 ### The relay socket (`handleSocket` → `Room`)
 
 - The client sends its `personalSecret` as the first WebSocket subprotocol string, prefixed
   with `Secret`. No secret / bad secret → socket closed (`timingSafeEqual` check in
   `Room.setSocket`).
-- Messages are strings of the form `{header}^{payload}`. `Room.receiveMessage` parses only
-  the JSON header (`MESSAGE_HEADER_REGEX`), reads `s` (sender) and `r` (receiver), verifies
-  the claimed sender matches the socket's owner, then forwards the _entire raw string_ to the
-  receiver's socket. Payload is never deserialized server-side.
-- `ClusterFunMessageHeader` (`libs/comms`) is the header contract; keep it in sync with the
-  client's `libs/comms/ClusterFunMessageHeader.ts`.
+- Messages are strings of the form **`{header}^{routing}^{payload}`** (the server only ever
+  parses the first segment, which is why older notes here said `{header}^{payload}` — but a
+  message you _construct_ needs all three). `Room.receiveMessage` parses only the JSON header
+  (`MESSAGE_HEADER_REGEX`), reads `s` (sender) and `r` (receiver), verifies the claimed sender
+  matches the socket's owner, then forwards the _entire raw string_ on. Payload is never
+  deserialized server-side.
+- **`Room.ts:154` logs every relayed message body in full** to stdout, which
+  `startserver.sh` redirects to `~/logs/server.log`. `console.log` to a file is _synchronous_
+  in Node, so this puts an SD-card write in the relay hot path and grows an unbounded log. See
+  the risk register.
+
+> ### ⚠ `ClusterFunMessageHeader` has drifted from the client
+>
+> `libs/comms/ClusterFunMessageHeader.ts` is a hand-kept copy of the client's file with no sync
+> mechanism, and they no longer match: this copy declares a required **`t: string`** the client
+> lacks, is a `default` export vs the client's named export, and types `id?: string | number`
+> vs the client's `id?: string`. `libs/config/GameInstanceProperties.ts` is duplicated the same
+> way but is currently byte-identical. Treat an edit to either as a two-repo change.
 
 ### Rooms & lifecycle (`ServerModel` / `Room`)
 
@@ -74,9 +95,12 @@ clusterfun_server_main.ts   Entry: express app, routes, vhosts, background purge
   is named `"presenter"`.
 - `clear()` (terminate) closes and drops every endpoint except the presenter and marks the
   room `idle`.
-- A room is **active** if it saw a message in the last hour (`isActive`). Every 10 minutes a
-  background task (`purgeInactiveRooms`) deletes inactive rooms. So all rooms are transient —
-  do not treat server state as durable.
+- A room is **active** if it saw a message in the last hour (`isActive`). A background task
+  (`purgeInactiveRooms`) runs **every 60 seconds** and deletes inactive rooms; there is also an
+  abandoned-room path at `ABANDONED_ROOM_MS = 5 min` (`ServerModel.ts:19`). All rooms are
+  transient — do not treat server state as durable.
+  > The comment above `isActive` in `Room.ts:37` says "last 10 minutes"; the code compares
+  > against `ONE_HOUR`. The code is right.
 - Errors: throw `UserError` for a message that should reach the user (→ HTTP 400); other
   throws become a 500 with a timecode. `safeCall` wraps every HTTP handler.
 
@@ -192,7 +216,16 @@ Config is in `.prettierrc.json`: `printWidth: 100` (100 columns) and **double qu
 
 ## Notes / cleanup opportunities
 
-- The WebSocket route is registered on the _main_ app rather than the clusterfun vhost
-  because (per a code comment) `express-ws` doesn't cooperate with subdomains.
+- **vhost is gone.** `clusterFunApp` is mounted for every host (`clusterfun_server_main.ts:133-139`).
+  The `// HACK: TODO: ... does not work with subdomains` comment at `:67` and the `vhost` npm
+  dependency are both leftovers from when it wasn't.
+- **No gzip.** There is no `compression` dependency and `express.static` is mounted bare, so
+  the client bundle and the 3.1 MB Lexible dictionary ship uncompressed off a home uplink.
+  One `app.use(compression())` is roughly a 4× win. See the risk register.
+- **The deployed `client/` folder contains ~29 MB of developer artifacts** — a 23 MB
+  `bundle-stats.json` (from `react-scripts build --stats`) and 66 `.map` files — because
+  `conan.json` rsyncs `clusterfun-client/build` wholesale. They are publicly fetchable.
 - No persistence and no auth beyond the per-participant secret. Secrets are the only thing
   protecting a room; treat them accordingly.
+- `models/HealthMetrics.ts:20` claims the windows array is "longest label first"; it is
+  ordered shortest first.
