@@ -151,7 +151,10 @@ export class Room {
   // sendMessage
   //------------------------------------------------------------------------------------------
   receiveMessage(sender: string, message: string) {
-    this.logger.logLine("Received message: " + message);
+    // Body only in a local run.  The thunk matters as much as the flag: building
+    // "Received message: " + message allocates the whole 133KB of a PartyPix upload
+    // even when nothing is going to print it.
+    this.logger.logVerbose(() => "Received message: " + message);
     const headerMatch = message.match(MESSAGE_HEADER_REGEX);
     if (!headerMatch) {
       throw new Error("Received a message with an invalid header");

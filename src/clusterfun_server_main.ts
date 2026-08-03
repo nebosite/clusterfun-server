@@ -99,7 +99,9 @@ clusterFunApp.use(function (req, res, next) {
   if (req.url.length < 2) {
     serverModel.logEvent(ClusterFunEventType.GetRequest, undefined, "ROOT");
   }
-  logger.logLine(`Request: ${req.method}: ` + req.url);
+  // Per request, so local-only: every static file fetch would otherwise be a
+  // synchronous SD-card write on the Pi.
+  logger.logVerbose(() => `Request: ${req.method}: ` + req.url);
   next();
 });
 
@@ -122,6 +124,13 @@ clusterFunApp_ws.app.ws("/talk/:roomId/:personalId", api.handleSocket);
 const musicFolder = defaultMusicFolder(__dirname);
 const musicCatalog = new MusicCatalog(musicFolder);
 logger.logLine("Serving background music from " + musicFolder);
+// Compute the real content hashes in the background.  Requests are served from
+// the moment the server starts using a cheap (size, mtime) token, so nothing
+// waits on this - it just upgrades the tokens to content hashes once it lands.
+musicCatalog
+  .warm()
+  .then(() => logger.logLine("Music content hashes ready"))
+  .catch((err) => logger.logLine("Could not hash the music folder: " + err));
 clusterFunApp.get(`/music/${MUSIC_MANIFEST_NAME}`, (req, res) => {
   // The one music URL that changes: it must be re-validated, or a new track never appears.
   res.setHeader("Cache-Control", "no-cache");

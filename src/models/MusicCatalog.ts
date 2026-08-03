@@ -91,20 +91,86 @@ export class MusicCatalog {
     return { schema: MUSIC_SCHEMA_VERSION, version: versionOf(tracks), tracks };
   }
 
-  // Content hash, remembered against the file's size and mtime so it is computed once per
-  // file per change rather than once per request.
+  // The cache-busting token for a track, remembered against the file's size and mtime.
+  //
+  // This NEVER reads the file.  It used to: `readFileSync` plus a SHA-256 over every track,
+  // on the first request, which on a Pi meant several seconds of SD-card I/O with the event
+  // loop blocked - every room, every socket and every other request frozen together, after
+  // every single restart and deploy.
+  //
+  // So a cold entry gets a token derived from (size, mtime), which is free and changes
+  // whenever the file changes; `warm()` replaces it with a real content hash in the
+  // background.  A track's URL may therefore change once, shortly after startup, which costs
+  // one re-fetch of one file and is a great deal cheaper than freezing the box.
   private hashFor(fullPath: string, stat: fs.Stats): string | undefined {
     const known = this.hashes.get(fullPath);
     if (known && known.size === stat.size && known.mtimeMs === stat.mtimeMs) return known.hash;
+    return quickToken(fullPath, stat);
+  }
+
+  // -------------------------------------------------------------------
+  // warm - compute the real content hashes, off the request path.
+  //
+  // Content hashes are worth having because they are the same on every
+  // machine: rsync preserves mtimes, but a rebuilt box or a file copied by
+  // hand would otherwise hand every client a new URL for identical audio.
+  //
+  // Files are streamed through the hash one at a time rather than read whole:
+  // 150MB of readFile would be 150MB of resident memory and one long
+  // uninterruptible hash, where a stream yields between chunks and leaves the
+  // server answering throughout.  Sequential on purpose - the bottleneck is a
+  // single SD card, and reading four files at once only makes it seek.
+  // -------------------------------------------------------------------
+  async warm(): Promise<void> {
+    let names: string[];
     try {
-      const digest = crypto.createHash("sha256").update(fs.readFileSync(fullPath)).digest("hex");
-      const hash = digest.slice(0, 12);
-      this.hashes.set(fullPath, { size: stat.size, mtimeMs: stat.mtimeMs, hash });
-      return hash;
+      names = await fs.promises.readdir(this.folder);
     } catch {
-      return undefined;
+      return; // No music folder is a perfectly normal state.
+    }
+
+    for (const name of names.sort((a, b) => a.localeCompare(b))) {
+      if (!AUDIO_EXTENSIONS.has(path.extname(name).toLowerCase())) continue;
+      const full = path.join(this.folder, name);
+      try {
+        const stat = await fs.promises.stat(full);
+        if (!stat.isFile()) continue;
+        const known = this.hashes.get(full);
+        if (known && known.size === stat.size && known.mtimeMs === stat.mtimeMs) continue;
+        const hash = await hashFile(full);
+        this.hashes.set(full, { size: stat.size, mtimeMs: stat.mtimeMs, hash });
+      } catch {
+        // An unreadable track is skipped, exactly as build() skips it.
+      }
     }
   }
+}
+
+/**
+ * A token that changes when the file does, costing nothing to compute.  Used until the real
+ * content hash has been calculated in the background.
+ *
+ * The path is in the digest as well as the size and mtime: two different tracks that happen
+ * to be the same length and were written in the same millisecond - which is exactly what a
+ * copy or an rsync produces - would otherwise be handed the same token.
+ */
+function quickToken(fullPath: string, stat: fs.Stats): string {
+  return crypto
+    .createHash("sha256")
+    .update(`${fullPath}:${stat.size}:${stat.mtimeMs}`)
+    .digest("hex")
+    .slice(0, 12);
+}
+
+/** SHA-256 of a file's contents, streamed so the event loop keeps breathing. */
+function hashFile(fullPath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash("sha256");
+    const stream = fs.createReadStream(fullPath);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("error", reject);
+    stream.on("end", () => resolve(hash.digest("hex").slice(0, 12)));
+  });
 }
 
 /** A stable, URL-safe id for a track, derived from its filename. */

@@ -43,6 +43,57 @@ describe("MusicCatalog", () => {
     assert.notStrictEqual(tracks[0].hash, tracks[1].hash);
   });
 
+  // build() must never read a file.  It used to: readFileSync plus a SHA-256 over every
+  // track, on the first request, which on a Pi froze the whole box - every room, every
+  // socket - for seconds after each restart.  warm() does that work in the background
+  // instead, streaming each file so the event loop keeps breathing.
+  test("serves a usable manifest before anything has been hashed", () => {
+    const catalog = new MusicCatalog(folder);
+    const tracks = catalog.build().tracks;
+    for (const t of tracks) {
+      assert.match(t.hash, /^[0-9a-f]{12}$/);
+    }
+    assert.notStrictEqual(tracks[0].hash, tracks[1].hash);
+  });
+
+  test("warm() upgrades the tokens to real content hashes", async () => {
+    const catalog = new MusicCatalog(folder);
+    const before = catalog.build().tracks.map((t) => t.hash);
+
+    await catalog.warm();
+    const after = catalog.build().tracks.map((t) => t.hash);
+
+    // Same files, but now hashed by content rather than by (path, size, mtime)
+    assert.notDeepStrictEqual(before, after);
+    for (const hash of after) assert.match(hash, /^[0-9a-f]{12}$/);
+
+    // A content hash is the same wherever the file is: a second catalog over the
+    // same folder must agree, which is the reason to bother computing them at all.
+    const other = new MusicCatalog(folder);
+    await other.warm();
+    assert.deepStrictEqual(
+      other.build().tracks.map((t) => t.hash),
+      after,
+    );
+  });
+
+  test("warm() is stable when nothing has changed", async () => {
+    const catalog = new MusicCatalog(folder);
+    await catalog.warm();
+    const first = catalog.build().tracks.map((t) => t.hash);
+    await catalog.warm();
+    assert.deepStrictEqual(
+      catalog.build().tracks.map((t) => t.hash),
+      first,
+    );
+  });
+
+  test("warm() on a folder that is not there is not an error", async () => {
+    const catalog = new MusicCatalog(path.join(folder, "nope"));
+    await assert.doesNotReject(() => catalog.warm());
+    assert.deepStrictEqual(catalog.build().tracks, []);
+  });
+
   test("the hash follows the contents, so a replaced file busts the cache", () => {
     const catalog = new MusicCatalog(folder);
     const before = catalog.build().tracks.find((t) => t.file === "aryx.m4a")!.hash;

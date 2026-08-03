@@ -13,6 +13,9 @@ const silentLogger = {
   logError() {
     /* noop */
   },
+  logVerbose() {
+    /* noop - and deliberately does not call the thunk, like the real one */
+  },
 } as any;
 
 // Room reports what it managed to send, and separately what it could not deliver.
