@@ -1,5 +1,6 @@
 import express from "express";
 import express_ws from "express-ws";
+import compression from "compression";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import { ClusterFunEventType, ServerModel } from "./models/ServerModel.js";
@@ -79,7 +80,19 @@ if (killPath) {
 }
 
 // First in the chain, so it sees every response including static files and music.
+//
+// Deliberately BEFORE compression, so the traffic numbers on the health page are the bytes
+// this box actually put on the wire rather than the pre-compression size.
 clusterFunApp.use(trafficMeter((received, sent) => serverModel.reportHttpExchange(received, sent)));
+
+// Gzip everything compressible.  This box is a Raspberry Pi on a home uplink, and the
+// client bundle is the largest thing it sends: Lexible's dictionary chunk alone is 3.1MB
+// raw against 732KB gzipped.  Cloudflare compresses to the browser, but only after the Pi
+// has already pushed the full uncompressed body to Cloudflare on every cache miss.
+//
+// The default filter skips anything already compressed (m4a, png, jpg), so the music and
+// the images are not pointlessly re-encoded on a slow CPU.
+clusterFunApp.use(compression());
 
 clusterFunApp.use(bodyParser.json());
 clusterFunApp.use(function (req, res, next) {

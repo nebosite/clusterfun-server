@@ -167,7 +167,7 @@ third party in the loop.
   30-day half-life — last year's hit should not outrank this month's.
 - Buckets older than 400 days are folded into all-time totals and dropped.
 - **The file lives outside the deploy folder** (`~/analytics/popularity.json`, override with
-  `CLUSTERFUN_ANALYTICS_PATH`). `deployit.sh` deletes and recreates `deploy` wholesale, so
+  `CLUSTERFUN_ANALYTICS_PATH`). The deploy mirrors `~/deploy` with `rsync --delete`, so
   anything stored in there would be wiped by every deploy.
 - Writes are atomic (temp file + rename) and debounced to at most one per 5s, with a final
   flush on process exit — so a normal stop (`stopserver.sh` sends SIGTERM → `process.exit`)
