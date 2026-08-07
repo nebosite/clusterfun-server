@@ -97,6 +97,7 @@ export class ApiHandler {
   getGameManifest = (req: Request, res: Response) => {
     this.safeCall(req, res, "GetGameManifest", async () => {
       return [
+        { name: "PassTheAux", displayName: "Pass the AUX (Mixtape)", tags: ["alpha"] },
         { name: "PartyPix", displayName: "PartyPix", tags: ["alpha"] },
         { name: "Lexible", displayName: "Lexible", tags: ["alpha"] },
         { name: "RetroSpectro", displayName: "Retro Spectro", tags: ["alpha"] },
