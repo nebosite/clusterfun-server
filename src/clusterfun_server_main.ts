@@ -15,6 +15,7 @@ import {
 } from "./helpers/musicFolder.js";
 import { MusicCatalog } from "./models/MusicCatalog.js";
 import { trafficMeter } from "./helpers/trafficMeter.js";
+import { loadEnvFile } from "./helpers/envFile.js";
 import { version as VERSION } from "./version.js";
 
 //--------------------------------------------------------------------------------------
@@ -27,6 +28,22 @@ logger.logLine(
 logger.logLine("## Starting ClusterFun Server  v" + VERSION);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Secrets come from a .env file next to the server (production: ~/deploy/.env), and this has
+// to happen before anything reads process.env - ApiHandler builds YouTubeSearch, which picks
+// up YOUTUBE_API_KEY in its constructor.  Anything already exported wins over the file, so
+// this cannot silently override a variable set on the command line or by systemd.  Names are
+// logged, never values.
+const loadedEnv = loadEnvFile(__dirname);
+if (loadedEnv.path) {
+  const applied = loadedEnv.applied.length ? loadedEnv.applied.join(", ") : "nothing new";
+  logger.logLine(`Loaded environment from ${loadedEnv.path}: ${applied}`);
+  if (loadedEnv.skipped.length) {
+    logger.logLine(
+      `  (already set in the environment, so left alone: ${loadedEnv.skipped.join(", ")})`,
+    );
+  }
+}
 
 // ---------------------------------------------------------------------------------
 // Configuration

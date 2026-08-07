@@ -185,6 +185,7 @@ and is _not_ covered by `check-shared-contracts.js` — change one, change the o
 - **Concurrent identical searches share one upstream call** — otherwise the moment everybody
   types the same artist is the moment you pay for it several times over.
 - **Failures are not cached**, so a transient 500 does not poison a term for a day.
+- **`YOUTUBE_API_KEY` comes from a `.env` file** — see "Secrets" below.
 - **A missing `YOUTUBE_API_KEY` returns `[]`, not an error**, and logs once. The phone shows
   "no results", which is a better failure mid-party than a red error. Same for an empty `q`.
 - `videoEmbeddable=true` is not optional: the client plays these through the YouTube IFrame
@@ -221,6 +222,37 @@ third party in the loop.
   disk**, and that is the default — so tests (which all build a `ServerModel`) cannot write
   into somebody's home directory. `clusterfun_server_main.ts` passes the real path.
 - A missing, corrupt, or future-schema file is survivable: it starts fresh and keeps serving.
+
+## Secrets (`helpers/envFile.ts`)
+
+API keys come from a **`.env` file next to the server**, never from the repo. Copy
+`example.env` to `.env` and fill it in; `.env` is gitignored.
+
+`loadEnvFile` runs at the top of `clusterfun_server_main.ts`, **before `ApiHandler` is
+constructed** — `YouTubeSearch` reads `YOUTUBE_API_KEY` in its constructor, so a later load
+would be too late. It looks in the app folder, then its parent, which is what makes one path
+work for all three ways this process starts:
+
+| How it starts                | App folder (`__dirname`) | File used                |
+| ---------------------------- | ------------------------ | ------------------------ |
+| production (`~/deploy`)      | `~/deploy`               | `~/deploy/.env`          |
+| `npm start` (built)          | `clusterfun-server/dist` | `clusterfun-server/.env` |
+| `npm run startdev` (ts-node) | `clusterfun-server/src`  | `clusterfun-server/.env` |
+
+`CLUSTERFUN_ENV_FILE` overrides the search outright.
+
+- **The real environment always wins.** A variable already set is never overwritten, so
+  `YOUTUBE_API_KEY=... npm start`, systemd, and the older `~/.clusterfun_env` shell export
+  (still sourced by `startserver.sh`) all keep working and take precedence. A config file that
+  silently overrode what you just typed would be a nasty thing to debug.
+- **Values are never logged** — the startup line reports variable _names_ only.
+- No `dotenv` dependency: the format is a dozen lines of parsing, this ships to a Pi, and a
+  bad line is skipped rather than thrown on so one typo cannot stop the server booting.
+- **The file is not part of the deploy.** `conan.json` does not ship it, so the key never
+  rides along in the sync — you create `~/deploy/.env` on the Pi once. It survives deploys
+  because `deploy.js` only passes `--delete` for entries that _own_ their remote folder, and
+  the deploy root is shared (`deploy.js:693`). Nothing else protects it, so if that gating
+  ever changes, this file is what gets wiped.
 
 ## Build & run
 
