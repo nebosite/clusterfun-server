@@ -17,6 +17,8 @@
 // it there too.
 // ==========================================================================================
 
+import * as https from "https";
+
 const YOUTUBE_SEARCH_URL = "https://www.googleapis.com/youtube/v3/search";
 
 // Mirrors the client's GameSettings.ts.  Kept here as well so a malformed request cannot make
@@ -48,23 +50,24 @@ interface SearchLogger {
   logError(text: string): void;
 }
 
-// Structural stand-ins for the global fetch.  tsconfig has no DOM lib and @types/node 18 does
-// not declare `fetch`, so typing against the real thing is not available here — and a narrow
-// interface is what a test needs to substitute anyway.
-export interface FetchResponseLike {
-  ok: boolean;
+// Deliberately NOT global fetch.  scripts/autorun.sh pins the Pi to node-v16.14.0, which has
+// no global fetch at all — this would build here on a modern Node, pass its tests, and then
+// throw on every search in production.  The built-in https module works on both.
+export interface HttpResponse {
   status: number;
-  json(): Promise<any>;
-  text(): Promise<string>;
+  body: string;
 }
 
-export type FetchLike = (url: string) => Promise<FetchResponseLike>;
+export type HttpGet = (url: string) => Promise<HttpResponse>;
+
+// A hung socket must not park a request forever; the phone would just sit there spinning.
+const REQUEST_TIMEOUT_MS = 10000;
 
 export interface YouTubeSearchOptions {
   apiKey?: string;
   ttlMs?: number;
   maxEntries?: number;
-  fetchImpl?: FetchLike;
+  httpGet?: HttpGet;
   now?: () => number;
   logger?: SearchLogger;
 }
@@ -112,7 +115,7 @@ export class YouTubeSearch {
   private readonly apiKey: string;
   private readonly ttlMs: number;
   private readonly maxEntries: number;
-  private readonly fetchImpl: FetchLike;
+  private readonly httpGet: HttpGet;
   private readonly now: () => number;
   private readonly logger?: SearchLogger;
 
@@ -126,7 +129,7 @@ export class YouTubeSearch {
     this.apiKey = options.apiKey ?? process.env.YOUTUBE_API_KEY ?? "";
     this.ttlMs = options.ttlMs ?? numberFromEnv("YT_CACHE_TTL_MS", DEFAULT_CACHE_TTL_MS);
     this.maxEntries = options.maxEntries ?? numberFromEnv("YT_CACHE_MAX", DEFAULT_CACHE_MAX);
-    this.fetchImpl = options.fetchImpl ?? defaultFetch;
+    this.httpGet = options.httpGet ?? httpsGet;
     this.now = options.now ?? Date.now;
     this.logger = options.logger;
   }
@@ -222,16 +225,23 @@ export class YouTubeSearch {
     url.searchParams.set("q", query);
     url.searchParams.set("key", this.apiKey);
 
-    const response = await this.fetchImpl(url.toString());
-    if (!response.ok) {
+    const response = await this.httpGet(url.toString());
+    if (response.status < 200 || response.status >= 300) {
       // The body carries the real reason (quotaExceeded, keyInvalid, ...) and is worth having
       // in the log, but it must never reach the client — it can echo the key back.
-      const detail = await safeReadBody(response);
-      this.logger?.logError(`YouTube search failed (${response.status}): ${detail}`);
+      this.logger?.logError(
+        `YouTube search failed (${response.status}): ${response.body.slice(0, 500)}`,
+      );
       throw new Error(`YouTube search failed with status ${response.status}`);
     }
 
-    const data: any = await response.json();
+    let data: any;
+    try {
+      data = JSON.parse(response.body);
+    } catch (err) {
+      this.logger?.logError(`YouTube search returned unparseable JSON: ${err}`);
+      throw new Error("YouTube search returned an unreadable response");
+    }
     return toTracks(data);
   }
 }
@@ -260,16 +270,28 @@ export function toTracks(data: any): Track[] {
   return tracks;
 }
 
-async function safeReadBody(response: FetchResponseLike): Promise<string> {
-  try {
-    return (await response.text()).slice(0, 500);
-  } catch {
-    return "<unreadable body>";
-  }
-}
-
-// Node has had a global fetch since 18; it just is not in this project's type surface.
-const defaultFetch: FetchLike = (url) => (globalThis as any).fetch(url);
+//--------------------------------------------------------------------------------------
+// The default transport: plain https.get, because the Pi is on Node 16 (see the note by
+// HttpGet).  Non-2xx is returned rather than thrown — the caller wants the status and the
+// body to log.
+//--------------------------------------------------------------------------------------
+const httpsGet: HttpGet = (url) =>
+  new Promise<HttpResponse>((resolve, reject) => {
+    const request = https.get(url, (response) => {
+      const chunks: Buffer[] = [];
+      response.on("data", (chunk: Buffer) => chunks.push(chunk));
+      response.on("end", () =>
+        resolve({
+          status: response.statusCode ?? 0,
+          body: Buffer.concat(chunks).toString("utf8"),
+        }),
+      );
+    });
+    request.on("error", reject);
+    request.setTimeout(REQUEST_TIMEOUT_MS, () => {
+      request.destroy(new Error(`YouTube search timed out after ${REQUEST_TIMEOUT_MS}ms`));
+    });
+  });
 
 function numberFromEnv(name: string, fallback: number): number {
   const raw = process.env[name];

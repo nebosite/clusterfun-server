@@ -193,6 +193,11 @@ and is _not_ covered by `check-shared-contracts.js` — change one, change the o
   the usual generic 500 plus a timecode.
 - Snippet text arrives HTML-escaped (`Rock &amp; Roll`); it is decoded here rather than in
   every view. `durationSec` is always `0` — `search.list` does not return durations.
+- **It uses `https.get`, not `fetch`, and must keep doing so.** `scripts/autorun.sh` pins the
+  Pi to `node-v16.14.0`, which has no global `fetch`. A `fetch` version builds on a modern dev
+  machine, passes its tests there, and then throws on every search in production — the exact
+  failure that is invisible until it is live. The transport is injectable (`httpGet`), which
+  is also how the tests substitute one.
 
 ### Game popularity (`models/PopularityStore.ts`)
 

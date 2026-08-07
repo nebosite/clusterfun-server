@@ -7,22 +7,20 @@ import {
   toTracks,
   MAX_SEARCH_RESULTS,
   MAX_QUERY_LEN,
-  FetchLike,
+  HttpGet,
 } from "./YouTubeSearch.js";
 
-// A fake fetch that records the URLs it was asked for and hands back canned responses.
-function fakeFetch(responses: Array<{ ok?: boolean; status?: number; body?: any }>) {
+// A fake transport that records the URLs it was asked for and hands back canned responses.
+function fakeFetch(responses: Array<{ ok?: boolean; status?: number; body?: any; raw?: string }>) {
   const calls: string[] = [];
   let index = 0;
-  const impl: FetchLike = async (url) => {
+  const impl: HttpGet = async (url) => {
     calls.push(String(url));
     const next = responses[Math.min(index, responses.length - 1)];
     index++;
     return {
-      ok: next.ok ?? true,
-      status: next.status ?? 200,
-      json: async () => next.body ?? {},
-      text: async () => JSON.stringify(next.body ?? {}),
+      status: next.status ?? (next.ok === false ? 500 : 200),
+      body: next.raw ?? JSON.stringify(next.body ?? {}),
     };
   };
   return { impl, calls, callCount: () => index };
@@ -118,7 +116,7 @@ describe("response mapping", () => {
 describe("search behaviour", () => {
   test("an empty query costs no quota at all", async () => {
     const f = fakeFetch([{ body: { items: [] } }]);
-    const search = new YouTubeSearch({ apiKey: "k", fetchImpl: f.impl });
+    const search = new YouTubeSearch({ apiKey: "k", httpGet: f.impl });
     assert.deepStrictEqual(await search.search("   "), []);
     assert.strictEqual(f.callCount(), 0);
   });
@@ -128,7 +126,7 @@ describe("search behaviour", () => {
     const errors: string[] = [];
     const search = new YouTubeSearch({
       apiKey: "",
-      fetchImpl: f.impl,
+      httpGet: f.impl,
       logger: { logLine: () => {}, logError: (t) => errors.push(t) },
     });
     assert.deepStrictEqual(await search.search("anything"), []);
@@ -140,7 +138,7 @@ describe("search behaviour", () => {
 
   test("asks YouTube for embeddable videos only - the client plays these in an IFrame", async () => {
     const f = fakeFetch([{ body: { items: [item("v", "t")] } }]);
-    await new YouTubeSearch({ apiKey: "secret-key", fetchImpl: f.impl }).search("hello world");
+    await new YouTubeSearch({ apiKey: "secret-key", httpGet: f.impl }).search("hello world");
     const url = new URL(f.calls[0]);
     assert.strictEqual(url.searchParams.get("videoEmbeddable"), "true");
     assert.strictEqual(url.searchParams.get("type"), "video");
@@ -155,7 +153,7 @@ describe("search behaviour", () => {
     const errors: string[] = [];
     const search = new YouTubeSearch({
       apiKey: "k",
-      fetchImpl: f.impl,
+      httpGet: f.impl,
       logger: { logLine: () => {}, logError: (t) => errors.push(t) },
     });
     const thrown = await search.search("x").then(
@@ -171,12 +169,25 @@ describe("search behaviour", () => {
     );
   });
 
+  // A proxy or captive portal answering 200 with HTML is a real thing on a home uplink.
+  test("a 200 that is not JSON fails cleanly instead of throwing a parse error at the client", async () => {
+    const f = fakeFetch([{ status: 200, raw: "<html>nope</html>" }]);
+    const errors: string[] = [];
+    const search = new YouTubeSearch({
+      apiKey: "k",
+      httpGet: f.impl,
+      logger: { logLine: () => {}, logError: (t) => errors.push(t) },
+    });
+    await assert.rejects(() => search.search("x"), /unreadable response/);
+    assert.ok(errors.some((e) => /unparseable JSON/.test(e)));
+  });
+
   test("a failed search is not cached, so the next attempt tries again", async () => {
     const f = fakeFetch([
       { ok: false, status: 500 },
       { ok: true, body: { items: [item("v", "t")] } },
     ]);
-    const search = new YouTubeSearch({ apiKey: "k", fetchImpl: f.impl });
+    const search = new YouTubeSearch({ apiKey: "k", httpGet: f.impl });
     await assert.rejects(() => search.search("x"));
     assert.strictEqual((await search.search("x")).length, 1);
     assert.strictEqual(f.callCount(), 2);
@@ -186,7 +197,7 @@ describe("search behaviour", () => {
 describe("caching - the reason this proxy exists", () => {
   test("a repeated search costs one call, not two", async () => {
     const f = fakeFetch([{ body: { items: [item("v", "t")] } }]);
-    const search = new YouTubeSearch({ apiKey: "k", fetchImpl: f.impl });
+    const search = new YouTubeSearch({ apiKey: "k", httpGet: f.impl });
     await search.search("taylor swift");
     await search.search("  TAYLOR   SWIFT ");
     assert.strictEqual(f.callCount(), 1, "case and spacing must not miss the cache");
@@ -196,18 +207,13 @@ describe("caching - the reason this proxy exists", () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((r) => (release = r));
     let calls = 0;
-    const impl: FetchLike = async () => {
+    const impl: HttpGet = async () => {
       calls++;
       await gate;
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ items: [item("v", "t")] }),
-        text: async () => "",
-      };
+      return { status: 200, body: JSON.stringify({ items: [item("v", "t")] }) };
     };
 
-    const search = new YouTubeSearch({ apiKey: "k", fetchImpl: impl });
+    const search = new YouTubeSearch({ apiKey: "k", httpGet: impl });
     const both = Promise.all([search.search("same"), search.search("same")]);
     release();
     const [a, b] = await both;
@@ -220,7 +226,7 @@ describe("caching - the reason this proxy exists", () => {
     const f = fakeFetch([{ body: { items: [item("v", "t")] } }]);
     const search = new YouTubeSearch({
       apiKey: "k",
-      fetchImpl: f.impl,
+      httpGet: f.impl,
       ttlMs: 100,
       now: () => clock,
     });
@@ -235,7 +241,7 @@ describe("caching - the reason this proxy exists", () => {
 
   test("the cache is capped, evicting least-recently-used first", async () => {
     const f = fakeFetch([{ body: { items: [item("v", "t")] } }]);
-    const search = new YouTubeSearch({ apiKey: "k", fetchImpl: f.impl, maxEntries: 2 });
+    const search = new YouTubeSearch({ apiKey: "k", httpGet: f.impl, maxEntries: 2 });
     await search.search("one");
     await search.search("two");
     await search.search("one"); // touch "one" so "two" becomes the oldest
