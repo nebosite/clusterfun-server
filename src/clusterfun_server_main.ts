@@ -113,6 +113,7 @@ clusterFunApp.get("/api/am_i_healthy", api.showHealth);
 clusterFunApp.get("/api/health_data", api.getHealthData);
 clusterFunApp.get("/api/game_manifest", api.getGameManifest);
 clusterFunApp.get("/api/game_popularity", api.getGamePopularity);
+clusterFunApp.get("/api/youtube_search", api.youtubeSearch);
 
 clusterFunApp_ws.app.ws("/talk/:roomId/:personalId", api.handleSocket);
 

@@ -46,6 +46,7 @@ clusterfun_server_main.ts   Entry: express app, routes, background purge loop
 | `GET /api/health_data`         | `getHealthData`     | The same numbers as JSON, for the Stressato load test.           |
 | `GET /api/game_manifest`       | `getGameManifest`   | **Hardcoded** list of games shown in the production lobby.       |
 | `GET /api/game_popularity`     | `getGamePopularity` | Per-game play counts; the lobby orders its list by these.        |
+| `GET /api/youtube_search?q=`   | `youtubeSearch`     | Cached YouTube song search for Pass the AUX (see below).         |
 | `GET /music/*`                 | `express.static`    | Background music files (see below).                              |
 | `WS /talk/:roomId/:personalId` | `handleSocket`      | The relay socket.                                                |
 
@@ -158,6 +159,40 @@ Two smaller rules behind those numbers: byte counts are `Buffer.byteLength`, not
 length, so a name with an accent in it is not undercounted; and a relay message counts as
 sent only once it is actually on a socket, so a gap between the rows means messages are
 being _dropped_ rather than delivered.
+
+### YouTube song search (`apis/YouTubeSearch.ts`)
+
+`GET /api/youtube_search?q=<query>` backs Pass the AUX's song picker. It exists for two
+reasons, and the second is the load-bearing one:
+
+- **The API key stays on the server.** A key in the client bundle is a key anybody can lift
+  out of devtools.
+- **Quota.** A YouTube `search.list` call costs **100 units against a default daily quota of
+  10,000** — one hundred searches a day for the whole server. A party of eight all typing
+  "taylor swift" would be eight calls. The cache is what makes the feature survive a
+  Saturday night.
+
+The response is a `Track[]` (`videoId`, `title`, `artist`, `thumbnailUrl`, `durationSec`),
+consumed verbatim by `RelayMusicProvider` in the client's
+`games/PassTheAux/models/musicProvider.ts`. **That shape is duplicated across the two repos**
+and is _not_ covered by `check-shared-contracts.js` — change one, change the other.
+
+- **Cache**: keyed on the query lower-cased with whitespace collapsed, so `"Taylor  Swift"`
+  and `"taylor swift"` are one entry. TTL and size come from `YT_CACHE_TTL_MS` (default 24h)
+  and `YT_CACHE_MAX` (default 500), documented in `scripts/clusterfun_env.example`. Eviction
+  is LRU. A day is a long TTL for a search index, but song results barely move and quota is
+  the binding constraint, not freshness.
+- **Concurrent identical searches share one upstream call** — otherwise the moment everybody
+  types the same artist is the moment you pay for it several times over.
+- **Failures are not cached**, so a transient 500 does not poison a term for a day.
+- **A missing `YOUTUBE_API_KEY` returns `[]`, not an error**, and logs once. The phone shows
+  "no results", which is a better failure mid-party than a red error. Same for an empty `q`.
+- `videoEmbeddable=true` is not optional: the client plays these through the YouTube IFrame
+  player, so a video that refuses embedding is a track that silently plays nothing.
+- Upstream error bodies go to the **log only** — they can echo the key back. The client gets
+  the usual generic 500 plus a timecode.
+- Snippet text arrives HTML-escaped (`Rock &amp; Roll`); it is decoded here rather than in
+  every view. `durationSec` is always `0` — `search.list` does not return durations.
 
 ### Game popularity (`models/PopularityStore.ts`)
 

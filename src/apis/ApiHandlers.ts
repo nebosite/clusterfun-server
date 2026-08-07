@@ -4,6 +4,7 @@ import { Request, Response } from "express";
 import { WebSocket } from "ws";
 import { UserError } from "../helpers/errors.js";
 import { renderHealthPage } from "../helpers/healthPage.js";
+import { YouTubeSearch } from "./YouTubeSearch.js";
 
 const CLOSECODE_POLICY_VIOLATION = 1008;
 const CLOSECODE_WRONG_DATA = 1003;
@@ -17,13 +18,15 @@ export { UserError, AuthorizationError } from "../helpers/errors.js";
 export class ApiHandler {
   serverModel: ServerModel;
   logger: Logger;
+  musicSearch: YouTubeSearch;
 
   //--------------------------------------------------------------------------------------
   //
   //--------------------------------------------------------------------------------------
-  constructor(serverModel: ServerModel, logger: Logger) {
+  constructor(serverModel: ServerModel, logger: Logger, musicSearch?: YouTubeSearch) {
     this.serverModel = serverModel;
     this.logger = logger;
+    this.musicSearch = musicSearch ?? new YouTubeSearch({ logger });
   }
 
   //--------------------------------------------------------------------------------------
@@ -88,6 +91,18 @@ export class ApiHandler {
   getGamePopularity = (req: Request, res: Response) => {
     this.safeCall(req, res, "GetGamePopularity", async () => {
       return this.serverModel.popularity.report();
+    });
+  };
+
+  // ---------------------------------------------------------------------------------
+  // youtubeSearch - the song search behind Pass the AUX.  The relay holds the API key and
+  // caches results across every room, so the key never ships to a phone and a search term
+  // costs quota at most once.  See YouTubeSearch.ts for why that matters.
+  // ---------------------------------------------------------------------------------
+  youtubeSearch = (req: Request, res: Response) => {
+    this.safeCall(req, res, "YouTubeSearch", async () => {
+      const q = req.query?.q;
+      return this.musicSearch.search(typeof q === "string" ? q : "");
     });
   };
 
