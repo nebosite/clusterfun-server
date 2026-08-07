@@ -7,9 +7,22 @@ import {
   generatePersonalSecret,
 } from "../helpers/id-codes.js";
 import { GameInstanceProperties } from "../libs/config/GameInstanceProperties.js";
+import { PopularityStore } from "./PopularityStore.js";
+import { HealthMetrics, HealthWindow } from "./HealthMetrics.js";
 import os from "os";
+import { UserError } from "../helpers/errors.js";
 
 const cores = os.cpus();
+
+// How long a room with nobody connected is kept before it is dropped.  Long enough that
+// refreshing the presenter - which closes every socket for a moment - never loses a game.
+export const ABANDONED_ROOM_MS = 5 * 60 * 1000;
+
+// What a message actually costs on the wire.  String length is UTF-16 code units, which
+// undercounts the moment a player types a name with an accent or an emoji in it.
+function messageBytes(message: string): number {
+  return Buffer.byteLength(message, "utf8");
+}
 
 interface ExistingRoomInfo {
   id: string;
@@ -49,10 +62,17 @@ export class ServerModel {
   private rooms: Map<string, Room> = new Map<string, Room>();
   logger: Logger;
 
+  // ClusterFun's own play counts, kept on disk so the lobby can order games by
+  // what people actually play.  Separate from Google Analytics on purpose: the
+  // lobby must be able to sort itself without a third party in the loop.
+  readonly popularity: PopularityStore;
+
   startTime = Date.now();
 
-  events = [] as EventRecord[];
-  maxEventCount = 1000000; // 1M events
+  // What the server has been doing lately, in fixed buckets over the last week.  This
+  // replaced an array of every event ever logged, which grew to a million records and then
+  // discarded the oldest fifth - so under load it lost exactly the history worth having.
+  readonly health = new HealthMetrics();
   summarySegment = new Map<string, { count: number; sum: number }>();
   get activeRoomCount() {
     return this.rooms.size;
@@ -63,8 +83,11 @@ export class ServerModel {
   //------------------------------------------------------------------------------------------
   // ctor
   //------------------------------------------------------------------------------------------
-  constructor(logger: Logger) {
+  constructor(logger: Logger, popularity?: PopularityStore) {
     this.logger = logger;
+    // Defaults to an in-memory store; the real server hands in a persistent one
+    this.popularity = popularity ?? new PopularityStore();
+    this.popularity.load();
 
     let lastUsage = process.cpuUsage();
     const secondsPerInterval = 2;
@@ -80,6 +103,9 @@ export class ServerModel {
       this._trackedUsage.user = this._trackedUsage.user * 0.3 + newUser * 0.7;
       this._trackedUsage.system = this._trackedUsage.system * 0.3 + newSystem * 0.7;
       lastUsage = currentUsage;
+      // The raw reading for this interval, not the smoothed one - averaging an already
+      // smoothed value over a window would flatten every spike out of existence.
+      this.health.sampleResources((newUser + newSystem) * 100, process.memoryUsage().rss);
     }, secondsPerInterval * 1000);
   }
 
@@ -92,12 +118,22 @@ export class ServerModel {
     info: string | undefined = undefined,
   ) {
     const newRecord: EventRecord = { event, time: Date.now(), value, info };
-    this.events.push(newRecord);
     this.addToSegment(this.summarySegment, newRecord);
 
-    // If we go over max events, dump the oldest ones
-    if (this.events.length > this.maxEventCount) {
-      this.events = this.events.slice(Math.floor(this.events.length * 0.2));
+    switch (event) {
+      case ClusterFunEventType.MessageSend:
+        this.health.recordSentMessage(value ?? 0);
+        break;
+      case ClusterFunEventType.MessageReceive:
+        this.health.recordReceivedMessage(value ?? 0);
+        break;
+      case ClusterFunEventType.BadJoin:
+        this.health.recordInvalidRoomJoin();
+        break;
+      case ClusterFunEventType.GeneralError:
+      case ClusterFunEventType.BadRoomCreation:
+        this.health.recordError();
+        break;
     }
   }
 
@@ -105,14 +141,32 @@ export class ServerModel {
   //
   //------------------------------------------------------------------------------------------
   reportSentMessage(message: string) {
-    this.logEvent(ClusterFunEventType.MessageSend, message.length);
+    this.logEvent(ClusterFunEventType.MessageSend, messageBytes(message));
   }
 
   //------------------------------------------------------------------------------------------
   //
   //------------------------------------------------------------------------------------------
   reportRecievedMessage(message: string) {
-    this.logEvent(ClusterFunEventType.MessageReceive, message.length);
+    this.logEvent(ClusterFunEventType.MessageReceive, messageBytes(message));
+  }
+
+  //------------------------------------------------------------------------------------------
+  // A message that could not be handed to anybody: the recipient's socket is gone.  Counted
+  // as an error rather than as traffic, because no bytes left the box.
+  //------------------------------------------------------------------------------------------
+  //------------------------------------------------------------------------------------------
+  // One HTTP exchange.  Counted alongside relay traffic because it IS traffic - the client
+  // bundle and the music tracks are the largest things this box sends, and leaving them out
+  // was what made bytes-out look identical to bytes-in.
+  //------------------------------------------------------------------------------------------
+  reportHttpExchange(receivedBytes: number, sentBytes: number) {
+    this.health.recordReceivedMessage(receivedBytes);
+    this.health.recordSentMessage(sentBytes);
+  }
+
+  reportUndeliveredMessage(reason: string) {
+    this.logEvent(ClusterFunEventType.GeneralError, undefined, `undelivered: ${reason}`);
   }
 
   //--------------------------------------------------------------------------------------
@@ -139,17 +193,9 @@ export class ServerModel {
   };
 
   //------------------------------------------------------------------------------------------
-  //
+  // How long this process has been up, as "days hh:mm:ss".
   //------------------------------------------------------------------------------------------
-  getHealthData(earliestTime: number, span: number, latestTime: number | undefined = undefined) {
-    if (!latestTime) latestTime = Date.now();
-    if (span < 1000) span = 1000; // prevent DOS by asking for really short spans
-    if (latestTime < earliestTime) latestTime = earliestTime; // ensure times are in order
-
-    // prevent dos by picking a time that is too early
-    const dosTimeBoundary = latestTime - span * 200; // Max 200 data points
-    if (earliestTime < dosTimeBoundary) earliestTime = dosTimeBoundary;
-
+  get uptimeText(): string {
     let upTime = Date.now() - this.startTime;
     const msPerDay = 1000 * 3600 * 24;
     const days = Math.floor(upTime / msPerDay);
@@ -160,57 +206,58 @@ export class ServerModel {
     const minutes = Math.floor(upTime / 60000);
     upTime %= 60000;
     const seconds = Math.floor(upTime / 1000);
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    return `${days} ${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+  }
 
+  //------------------------------------------------------------------------------------------
+  // The instantaneous side of the health report: what is going on in this second.
+  //------------------------------------------------------------------------------------------
+  get roomSummary() {
     const allRooms = Array.from(this.rooms.values());
-    const currentRoomSummary = {
+    return {
       roomCount: this.rooms.size,
-      activeRooms: allRooms.reduce((total, room) => total + (room.isActive ? 1 : 0), 0),
+      // "Active" means somebody is actually connected, not merely that the room saw a
+      // message some time in the last hour - which counted every game opened all evening.
+      activeRooms: allRooms.reduce((total, room) => total + (room.connectionCount > 0 ? 1 : 0), 0),
       activeUsers: allRooms.reduce(
         (total, room) => (total += room.isActive ? room.userCount : 0),
         0,
       ),
     };
+  }
 
-    const reportSegments = new Map<number, Map<string, { count: number; sum: number }>>();
-
-    const key = (dateValue: number, span: number) => Math.floor(dateValue / span) * span;
-
-    for (let i = this.events.length - 1; i >= 0; i--) {
-      const ev = this.events[i];
-      if (ev.time < earliestTime) break;
-      if (ev.time <= latestTime) {
-        const shortKey = key(ev.time, span);
-        if (!reportSegments.has(shortKey))
-          reportSegments.set(shortKey, new Map<string, { count: number; sum: number }>());
-        const segment = reportSegments.get(shortKey)!;
-        this.addToSegment(segment, ev);
-      }
-    }
-
-    const series = Array.from(reportSegments.keys())
-      .map((date) => {
-        return { date, segments: reportSegments.get(date)! };
-      })
-      .map((s) => {
-        return {
-          date: s.date,
-          columns: Array.from(s.segments.keys()).map((sk) => ({
-            label: sk,
-            data: s.segments.get(sk)!,
-          })),
-        };
-      })
-      .sort((a, b) => a.date - b.date);
-
+  //------------------------------------------------------------------------------------------
+  // Everything the health page shows: the windowed metrics plus the live counts.
+  //------------------------------------------------------------------------------------------
+  getHealthReport(): {
+    version: string;
+    uptime: string;
+    windows: HealthWindow[];
+    rooms: { roomCount: number; activeRooms: number; activeUsers: number };
+  } {
     return {
       version: VERSION,
-      uptime: `${days} ${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`,
-      rooms: currentRoomSummary,
+      uptime: this.uptimeText,
+      windows: this.health.report(),
+      rooms: this.roomSummary,
+    };
+  }
+
+  //------------------------------------------------------------------------------------------
+  // The same numbers as JSON, for the Stressato load-test game, which watches the server
+  // while it hammers it.  The health page is for people; this is for a program.
+  //------------------------------------------------------------------------------------------
+  getHealthData() {
+    return {
+      version: VERSION,
+      uptime: this.uptimeText,
+      rooms: this.roomSummary,
       summary: Array.from(this.summarySegment.keys()).map((sk) => ({
         label: sk,
         data: this.summarySegment.get(sk)!,
       })),
-      series,
+      windows: this.health.report(),
       cpuUsage: this._trackedUsage,
       memoryUsage: process.memoryUsage(),
     };
@@ -240,6 +287,9 @@ export class ServerModel {
       this.createRoom(roomId, gameName as string, personalId, personalSecret);
       this.logger.logLine(`Created a new room id: ${roomId} for ${gameName}`);
     }
+    // One "play" per room opened.  Reusing a room (the presenter restarting
+    // into the same code) counts too - it is another sitting of the game.
+    this.popularity.recordPlay(gameName);
 
     const presenterId = personalId;
 
@@ -272,6 +322,7 @@ export class ServerModel {
     const room = this.joinPersonToRoom(playerName, personalId, personalSecret, roomId);
     const presenterId = room.presenterId;
     const gameName = room.game;
+    this.popularity.recordJoin(gameName);
 
     const properties: GameInstanceProperties = {
       gameName,
@@ -342,15 +393,18 @@ export class ServerModel {
   joinPersonToRoom(name: string, playerId: string, playerSecret: string, roomId: string) {
     this.logger.logLine(`Join: Room: ${roomId}, Player: ${playerId}, Name: ${name}`);
 
-    if (!this.rooms.has(roomId)) {
-      this.logEvent(ClusterFunEventType.GeneralError, undefined, "Join invalid room id");
-      throw new Error("Join invalid room id");
-    }
-
+    // A code that is simply not open is the single most common join failure -
+    // a typo, or a room that was purged after an hour idle.  It used to throw a
+    // plain Error, which safeCall turns into a 500 "server error, reference
+    // timecode": indistinguishable from a real crash, and the reason was only
+    // visible in this server's log.  As a UserError it comes back as a 400 with
+    // a message the player can act on.
     const room = this.rooms.get(roomId);
     if (!room) {
-      this.logEvent(ClusterFunEventType.GeneralError, undefined, "Join missing game");
-      throw new Error("Join missing game");
+      this.logEvent(ClusterFunEventType.BadJoin, undefined, `Join: no open room ${roomId}`);
+      throw new UserError(
+        `Room ${roomId} is not open. Check the code on the big screen - and note that a room closes after an hour of quiet.`,
+      );
     }
 
     room.addEndpoint(playerId, playerSecret, name);
@@ -370,7 +424,12 @@ export class ServerModel {
   //------------------------------------------------------------------------------------------
   purgeInactiveRooms() {
     this.logger.logLine("Purging rooms...");
-    const purgeMe = Array.from(this.rooms.values()).filter((r) => !r.isActive);
+    // Two ways to go: silent for an hour, or empty for a few minutes.  Without the second
+    // one a room lingers for a full hour after the last person walks away, and the room
+    // count reads as every game anybody opened rather than the ones being played.
+    const purgeMe = Array.from(this.rooms.values()).filter(
+      (r) => !r.isActive || r.isAbandoned(ABANDONED_ROOM_MS),
+    );
     for (const room of purgeMe) {
       this.logger.logLine("Purging inactive room " + room.id);
       this.rooms.delete(room.id);

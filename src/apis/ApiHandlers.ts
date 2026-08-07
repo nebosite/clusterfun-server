@@ -2,6 +2,8 @@ import { Logger } from "../helpers/consoleHelpers.js";
 import { ServerModel } from "../models/ServerModel.js";
 import { Request, Response } from "express";
 import { WebSocket } from "ws";
+import { UserError } from "../helpers/errors.js";
+import { renderHealthPage } from "../helpers/healthPage.js";
 
 const CLOSECODE_POLICY_VIOLATION = 1008;
 const CLOSECODE_WRONG_DATA = 1003;
@@ -9,25 +11,8 @@ const CLOSECODE_WRONG_DATA = 1003;
 const WEBSOCKET_PROTOCOL_HEADER = "sec-websocket-protocol";
 const SECRET_PREFIX = "Secret";
 
-// ---------------------------------------------------------------------------------
-// UserError - throw a UserError if you want the error text to make it back to the user
-// ---------------------------------------------------------------------------------
-export class UserError {
-  message: string;
-  constructor(message: string) {
-    this.message = message;
-  }
-}
-
-// ---------------------------------------------------------------------------------
-// AuthorizationError - throw an AuthorizationError for auth problems
-// ---------------------------------------------------------------------------------
-export class AuthorizationError {
-  message: string;
-  constructor(message: string) {
-    this.message = message;
-  }
-}
+// Re-exported so the many existing importers of ApiHandlers keep working
+export { UserError, AuthorizationError } from "../helpers/errors.js";
 
 export class ApiHandler {
   serverModel: ServerModel;
@@ -71,13 +56,38 @@ export class ApiHandler {
   //--------------------------------------------------------------------------------------
   //
   //--------------------------------------------------------------------------------------
+  // A page rather than a payload: this is the thing somebody opens on their phone when
+  // they want to know whether the server is unwell, so it renders itself.
   showHealth = (req: Request, res: Response) => {
-    this.safeCall(req, res, "ShowHealth", async () => {
-      let span = req.query.span ? Number.parseInt(req.query.span as string) : 60000;
-      let latest = req.query.latest ? Date.parse(req.query.latest as string) : Date.now();
-      let earliest = req.query.earliest ? Date.parse(req.query.earliest as string) : 0;
+    try {
+      const report = this.serverModel.getHealthReport();
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.end(renderHealthPage({ ...report, generatedAt: new Date().toISOString() }));
+    } catch (err) {
+      const timecode = Date.now();
+      this.logger.logError(`Error at timecode ${timecode} on ShowHealth: ${err}`);
+      res.status(500).setHeader("Content-Type", "text/html; charset=utf-8");
+      res.end(`<h1>Health page failed</h1><p>Reference timecode ${timecode}</p>`);
+    }
+  };
 
-      return this.serverModel.getHealthData(earliest, span, latest);
+  // The same numbers as JSON, for the Stressato load-test game.
+  getHealthData = (req: Request, res: Response) => {
+    this.safeCall(req, res, "GetHealthData", async () => this.serverModel.getHealthData());
+  };
+
+  //--------------------------------------------------------------------------------------
+  //
+  //--------------------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------------
+  // getGamePopularity - ClusterFun's own play counts, used by the lobby to order
+  // the game list.  Anonymous aggregate counts only: how many times each game has
+  // been opened and joined, never by whom.
+  // ---------------------------------------------------------------------------------
+  getGamePopularity = (req: Request, res: Response) => {
+    this.safeCall(req, res, "GetGamePopularity", async () => {
+      return this.serverModel.popularity.report();
     });
   };
 
@@ -91,6 +101,8 @@ export class ApiHandler {
         { name: "PartyPix", displayName: "PartyPix", tags: ["alpha"] },
         { name: "Lexible", displayName: "Lexible", tags: ["alpha"] },
         { name: "RetroSpectro", displayName: "Retro Spectro", tags: ["alpha"] },
+        { name: "Eittris", displayName: "EITtris", tags: ["beta"] },
+        { name: "OneOhOne", displayName: "101", tags: ["alpha"] },
         { name: "Stressato", displayName: "Stress Test", tags: ["debug"] },
       ];
     });

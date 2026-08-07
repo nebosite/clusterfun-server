@@ -13,12 +13,23 @@ const silentLogger = {
   logError() {
     /* noop */
   },
+  logVerbose() {
+    /* noop - and deliberately does not call the thunk, like the real one */
+  },
 } as any;
 
-// Room only ever calls serverModel.reportSentMessage on the path we exercise.
+// Room reports what it managed to send, and separately what it could not deliver.
 function fakeServerModel() {
   const sent: string[] = [];
-  return { model: { reportSentMessage: (m: string) => sent.push(m) } as any, sent };
+  const undelivered: string[] = [];
+  return {
+    model: {
+      reportSentMessage: (m: string) => sent.push(m),
+      reportUndeliveredMessage: (reason: string) => undelivered.push(reason),
+    } as any,
+    sent,
+    undelivered,
+  };
 }
 
 function fakeSocket() {
@@ -120,21 +131,28 @@ describe("Room", () => {
       assert.throws(() => room.receiveMessage("P1", "not-a-valid-message"));
     });
 
-    it("does not throw when the receiver has no socket", () => {
-      const { room } = makeRoom();
+    it("does not count a message as sent when the receiver has no socket", () => {
+      const { room, sm } = makeRoom();
       room.addEndpoint("P1", A_SECRET, "Alice");
       room.addEndpoint("P2", B_SECRET, "Bob"); // no socket attached
       const a = fakeSocket();
       room.setSocket("P1", A_SECRET, a.socket);
+
       assert.doesNotThrow(() => room.receiveMessage("P1", message("P1", "P2")));
+      // Nothing left the box, so nothing may be counted as bandwidth out
+      assert.deepEqual(sm.sent, []);
+      assert.deepEqual(sm.undelivered, ["no socket"]);
     });
 
-    it("does not throw when the receiver is unknown", () => {
-      const { room } = makeRoom();
+    it("does not count a message as sent when the receiver is unknown", () => {
+      const { room, sm } = makeRoom();
       room.addEndpoint("P1", A_SECRET, "Alice");
       const a = fakeSocket();
       room.setSocket("P1", A_SECRET, a.socket);
+
       assert.doesNotThrow(() => room.receiveMessage("P1", message("P1", "GHOST")));
+      assert.deepEqual(sm.sent, []);
+      assert.deepEqual(sm.undelivered, ["no endpoint"]);
     });
   });
 

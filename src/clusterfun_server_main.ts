@@ -1,11 +1,20 @@
 import express from "express";
 import express_ws from "express-ws";
+import compression from "compression";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import { ClusterFunEventType, ServerModel } from "./models/ServerModel.js";
+import { PopularityStore, defaultPopularityPath } from "./models/PopularityStore.js";
 import bodyParser from "body-parser";
 import { Logger } from "./helpers/consoleHelpers.js";
 import { ApiHandler } from "./apis/ApiHandlers.js";
+import {
+  defaultMusicFolder,
+  musicCacheControl,
+  MUSIC_MANIFEST_NAME,
+} from "./helpers/musicFolder.js";
+import { MusicCatalog } from "./models/MusicCatalog.js";
+import { trafficMeter } from "./helpers/trafficMeter.js";
 import { version as VERSION } from "./version.js";
 
 //--------------------------------------------------------------------------------------
@@ -39,7 +48,14 @@ for (let arg of process.argv.slice(2)) {
 // ---------------------------------------------------------------------------------
 // Set up models and base logic
 // ---------------------------------------------------------------------------------
-const serverModel = new ServerModel(logger);
+// The play counts live outside the deploy folder on purpose: deployit.sh
+// deletes and recreates that wholesale, which would wipe them on every deploy.
+// Override the location with CLUSTERFUN_ANALYTICS_PATH.
+const popularityStore = new PopularityStore(defaultPopularityPath(), undefined, (line: string) =>
+  logger.logLine(line),
+);
+logger.logLine(`Game popularity counts: ${defaultPopularityPath()}`);
+const serverModel = new ServerModel(logger, popularityStore);
 const api = new ApiHandler(serverModel, logger);
 
 //--------------------------------------------------------------------------------------
@@ -63,12 +79,29 @@ if (killPath) {
   });
 }
 
+// First in the chain, so it sees every response including static files and music.
+//
+// Deliberately BEFORE compression, so the traffic numbers on the health page are the bytes
+// this box actually put on the wire rather than the pre-compression size.
+clusterFunApp.use(trafficMeter((received, sent) => serverModel.reportHttpExchange(received, sent)));
+
+// Gzip everything compressible.  This box is a Raspberry Pi on a home uplink, and the
+// client bundle is the largest thing it sends: Lexible's dictionary chunk alone is 3.1MB
+// raw against 732KB gzipped.  Cloudflare compresses to the browser, but only after the Pi
+// has already pushed the full uncompressed body to Cloudflare on every cache miss.
+//
+// The default filter skips anything already compressed (m4a, png, jpg), so the music and
+// the images are not pointlessly re-encoded on a slow CPU.
+clusterFunApp.use(compression());
+
 clusterFunApp.use(bodyParser.json());
 clusterFunApp.use(function (req, res, next) {
   if (req.url.length < 2) {
     serverModel.logEvent(ClusterFunEventType.GetRequest, undefined, "ROOT");
   }
-  logger.logLine(`Request: ${req.method}: ` + req.url);
+  // Per request, so local-only: every static file fetch would otherwise be a
+  // synchronous SD-card write on the Pi.
+  logger.logVerbose(() => `Request: ${req.method}: ` + req.url);
   next();
 });
 
@@ -77,9 +110,38 @@ clusterFunApp.post("/api/startgame", api.startGame);
 clusterFunApp.post("/api/joingame", api.joinGame);
 clusterFunApp.post("/api/terminategame", api.terminateGame);
 clusterFunApp.get("/api/am_i_healthy", api.showHealth);
+clusterFunApp.get("/api/health_data", api.getHealthData);
 clusterFunApp.get("/api/game_manifest", api.getGameManifest);
+clusterFunApp.get("/api/game_popularity", api.getGamePopularity);
 
 clusterFunApp_ws.app.ws("/talk/:roomId/:personalId", api.handleSocket);
+
+// Background music, served by us rather than a third party so there is no other service to
+// depend on and no CORS to configure - it is the same origin as the app.  Adding music is
+// one step: put a file in hosted_content/music.  The manifest is generated from whatever is
+// in there, so there is nothing to keep in sync, and a missing folder is simply a server
+// with no music.
+const musicFolder = defaultMusicFolder(__dirname);
+const musicCatalog = new MusicCatalog(musicFolder);
+logger.logLine("Serving background music from " + musicFolder);
+// Compute the real content hashes in the background.  Requests are served from
+// the moment the server starts using a cheap (size, mtime) token, so nothing
+// waits on this - it just upgrades the tokens to content hashes once it lands.
+musicCatalog
+  .warm()
+  .then(() => logger.logLine("Music content hashes ready"))
+  .catch((err) => logger.logLine("Could not hash the music folder: " + err));
+clusterFunApp.get(`/music/${MUSIC_MANIFEST_NAME}`, (req, res) => {
+  // The one music URL that changes: it must be re-validated, or a new track never appears.
+  res.setHeader("Cache-Control", "no-cache");
+  res.json(musicCatalog.build());
+});
+clusterFunApp.use(
+  "/music",
+  express.static(musicFolder, {
+    setHeaders: (res, filePath) => res.setHeader("Cache-Control", musicCacheControl(filePath)),
+  }),
+);
 
 const clientPath = process.env.CLUSTERFUN_DEV_CLIENT_PATH ?? "client";
 const clusterfunRootFolder = path.join(__dirname, clientPath);
@@ -102,6 +164,10 @@ app.use(clusterFunApp);
 // Message handling for the process
 // ---------------------------------------------------------------------------------
 process.on("exit", function () {
+  // Write out any play counts still only in memory.  The store debounces its
+  // writes, so a shutdown inside that window would otherwise lose them - and a
+  // deploy restarts this process every time.
+  serverModel.popularity.flush();
   logger.logLine(`*** PROCESS ${process.pid} EXIT`);
 });
 
@@ -118,11 +184,14 @@ process.on("SIGINT", (signal) => {
 // ---------------------------------------------------------------------------------
 // Background tasks
 // ---------------------------------------------------------------------------------
-// Every 10 minutes: Drop a little note in the logs and purge rooms
+// Every minute: drop a little note in the logs and purge rooms.  Once every ten minutes
+// was fine when a room lived for an hour regardless; now that an abandoned room is dropped
+// after five minutes, checking ten-minutely would make the room count lag by more than the
+// grace period it is meant to enforce.
 setInterval(() => {
   logger.logLine(`I am alive: Roomcount:${serverModel.activeRoomCount}`);
   serverModel.purgeInactiveRooms();
-}, 600000);
+}, 60000);
 
 // ---------------------------------------------------------------------------------
 // Let er rip!

@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { ServerModel } from "./ServerModel.js";
+import { ABANDONED_ROOM_MS, ServerModel } from "./ServerModel.js";
+import { UserError } from "../helpers/errors.js";
 
 // ServerModel owns the room registry and all room-lifecycle rules: creating,
 // reusing, joining, terminating, and purging rooms.
@@ -141,7 +142,7 @@ describe("ServerModel", () => {
       assert.equal(model.hasRoom(host.roomId), false);
     });
 
-    it("keeps rooms that are still active", () => {
+    it("keeps a room somebody just opened", () => {
       const model = makeModel();
       const host = model.startGame("Testato", undefined as any);
 
@@ -149,5 +150,98 @@ describe("ServerModel", () => {
 
       assert.equal(model.hasRoom(host.roomId), true);
     });
+
+    it("drops a room nobody has been connected to for a few minutes", () => {
+      // Waiting a full hour meant every game anybody opened all evening still counted as
+      // a room, which is how a single local test came to report seven of them.
+      const model = makeModel();
+      const host = model.startGame("Testato", undefined as any);
+      const room = model.getRoom(host.roomId)!;
+      (room as any).lastConnectedTime = Date.now() - (ABANDONED_ROOM_MS + 1000);
+
+      model.purgeInactiveRooms();
+
+      assert.equal(model.hasRoom(host.roomId), false);
+    });
+
+    it("does not drop a room during the grace period, so a refresh cannot lose a game", () => {
+      const model = makeModel();
+      const host = model.startGame("Testato", undefined as any);
+      const room = model.getRoom(host.roomId)!;
+      (room as any).lastConnectedTime = Date.now() - 30_000; // half a minute with no socket
+
+      model.purgeInactiveRooms();
+
+      assert.equal(model.hasRoom(host.roomId), true);
+    });
+  });
+});
+
+describe("ServerModel - counting what gets played", () => {
+  it("counts a play when a room is opened, and a player for each join", () => {
+    const model = makeModel();
+    const game = model.startGame("Eittris", undefined as any);
+    model.joinGame(game.roomId, "Ann");
+    model.joinGame(game.roomId, "Bob");
+
+    const report = model.popularity.report();
+    assert.equal(report["Eittris"].plays, 1);
+    assert.equal(report["Eittris"].players, 2);
+    assert.ok(report["Eittris"].lastPlayed > 0);
+  });
+
+  it("keeps games apart", () => {
+    const model = makeModel();
+    model.startGame("Eittris", undefined as any);
+    model.startGame("Lexible", undefined as any);
+    model.startGame("Lexible", undefined as any);
+
+    const report = model.popularity.report();
+    assert.equal(report["Eittris"].plays, 1);
+    assert.equal(report["Lexible"].plays, 2);
+  });
+
+  it("does not write anything to disk unless it was given somewhere to write", () => {
+    // Guards the default: merely constructing a ServerModel (which every test
+    // does) must never touch the developer's home directory.
+    const model = makeModel();
+    assert.equal(model.popularity.isPersistent, false);
+  });
+});
+
+describe("ServerModel - joining a room that is not open", () => {
+  it("reports it as a user error, not a server crash", () => {
+    // This is the most common join failure in the wild: a typo, or a room that
+    // was purged after an hour idle.  As a plain Error it came back as a 500
+    // "reference timecode" and the real reason only existed in the server log.
+    const model = makeModel();
+    assert.throws(
+      () => model.joinGame("ZZZZ", "Ann"),
+      (err: any) => err instanceof UserError && /ZZZZ/.test(err.message),
+    );
+  });
+
+  it("says so in a way that mentions the code and the idle timeout", () => {
+    const model = makeModel();
+    try {
+      model.joinGame("ABCD", "Ann");
+      assert.fail("should have thrown");
+    } catch (err: any) {
+      assert.match(err.message, /ABCD/);
+      assert.match(err.message, /hour/i);
+    }
+  });
+
+  it("still rejects a malformed code before looking for a room", () => {
+    const model = makeModel();
+    assert.throws(() => model.joinGame("TOOLONG", "Ann"), /Invalid Room Code/);
+  });
+
+  it("lets a real code through", () => {
+    const model = makeModel();
+    const game = model.startGame("Eittris", undefined as any);
+    const joined = model.joinGame(game.roomId, "Ann");
+    assert.equal(joined.gameName, "Eittris");
+    assert.equal(joined.role, "client");
   });
 });
