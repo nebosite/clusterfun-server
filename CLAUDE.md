@@ -46,6 +46,7 @@ clusterfun_server_main.ts   Entry: express app, routes, background purge loop
 | `GET /api/health_data`         | `getHealthData`     | The same numbers as JSON, for the Stressato load test.           |
 | `GET /api/game_manifest`       | `getGameManifest`   | **Hardcoded** list of games shown in the production lobby.       |
 | `GET /api/game_popularity`     | `getGamePopularity` | Per-game play counts; the lobby orders its list by these.        |
+| `GET /api/youtube_search?q=`   | `youtubeSearch`     | Cached YouTube song search for Pass the AUX (see below).         |
 | `GET /music/*`                 | `express.static`    | Background music files (see below).                              |
 | `WS /talk/:roomId/:personalId` | `handleSocket`      | The relay socket.                                                |
 
@@ -159,6 +160,46 @@ length, so a name with an accent in it is not undercounted; and a relay message 
 sent only once it is actually on a socket, so a gap between the rows means messages are
 being _dropped_ rather than delivered.
 
+### YouTube song search (`apis/YouTubeSearch.ts`)
+
+`GET /api/youtube_search?q=<query>` backs Pass the AUX's song picker. It exists for two
+reasons, and the second is the load-bearing one:
+
+- **The API key stays on the server.** A key in the client bundle is a key anybody can lift
+  out of devtools.
+- **Quota.** A YouTube `search.list` call costs **100 units against a default daily quota of
+  10,000** — one hundred searches a day for the whole server. A party of eight all typing
+  "taylor swift" would be eight calls. The cache is what makes the feature survive a
+  Saturday night.
+
+The response is a `Track[]` (`videoId`, `title`, `artist`, `thumbnailUrl`, `durationSec`),
+consumed verbatim by `RelayMusicProvider` in the client's
+`games/PassTheAux/models/musicProvider.ts`. **That shape is duplicated across the two repos**
+and is _not_ covered by `check-shared-contracts.js` — change one, change the other.
+
+- **Cache**: keyed on the query lower-cased with whitespace collapsed, so `"Taylor  Swift"`
+  and `"taylor swift"` are one entry. TTL and size come from `YT_CACHE_TTL_MS` (default 24h)
+  and `YT_CACHE_MAX` (default 500), documented in `scripts/clusterfun_env.example`. Eviction
+  is LRU. A day is a long TTL for a search index, but song results barely move and quota is
+  the binding constraint, not freshness.
+- **Concurrent identical searches share one upstream call** — otherwise the moment everybody
+  types the same artist is the moment you pay for it several times over.
+- **Failures are not cached**, so a transient 500 does not poison a term for a day.
+- **`YOUTUBE_API_KEY` comes from a `.env` file** — see "Secrets" below.
+- **A missing `YOUTUBE_API_KEY` returns `[]`, not an error**, and logs once. The phone shows
+  "no results", which is a better failure mid-party than a red error. Same for an empty `q`.
+- `videoEmbeddable=true` is not optional: the client plays these through the YouTube IFrame
+  player, so a video that refuses embedding is a track that silently plays nothing.
+- Upstream error bodies go to the **log only** — they can echo the key back. The client gets
+  the usual generic 500 plus a timecode.
+- Snippet text arrives HTML-escaped (`Rock &amp; Roll`); it is decoded here rather than in
+  every view. `durationSec` is always `0` — `search.list` does not return durations.
+- **It uses `https.get`, not `fetch`, and must keep doing so.** `scripts/autorun.sh` pins the
+  Pi to `node-v16.14.0`, which has no global `fetch`. A `fetch` version builds on a modern dev
+  machine, passes its tests there, and then throws on every search in production — the exact
+  failure that is invisible until it is live. The transport is injectable (`httpGet`), which
+  is also how the tests substitute one.
+
 ### Game popularity (`models/PopularityStore.ts`)
 
 The one piece of state here that is **not** ephemeral. The relay counts a _play_ every time a
@@ -181,6 +222,37 @@ third party in the loop.
   disk**, and that is the default — so tests (which all build a `ServerModel`) cannot write
   into somebody's home directory. `clusterfun_server_main.ts` passes the real path.
 - A missing, corrupt, or future-schema file is survivable: it starts fresh and keeps serving.
+
+## Secrets (`helpers/envFile.ts`)
+
+API keys come from a **`.env` file next to the server**, never from the repo. Copy
+`example.env` to `.env` and fill it in; `.env` is gitignored.
+
+`loadEnvFile` runs at the top of `clusterfun_server_main.ts`, **before `ApiHandler` is
+constructed** — `YouTubeSearch` reads `YOUTUBE_API_KEY` in its constructor, so a later load
+would be too late. It looks in the app folder, then its parent, which is what makes one path
+work for all three ways this process starts:
+
+| How it starts                | App folder (`__dirname`) | File used                |
+| ---------------------------- | ------------------------ | ------------------------ |
+| production (`~/deploy`)      | `~/deploy`               | `~/deploy/.env`          |
+| `npm start` (built)          | `clusterfun-server/dist` | `clusterfun-server/.env` |
+| `npm run startdev` (ts-node) | `clusterfun-server/src`  | `clusterfun-server/.env` |
+
+`CLUSTERFUN_ENV_FILE` overrides the search outright.
+
+- **The real environment always wins.** A variable already set is never overwritten, so
+  `YOUTUBE_API_KEY=... npm start`, systemd, and the older `~/.clusterfun_env` shell export
+  (still sourced by `startserver.sh`) all keep working and take precedence. A config file that
+  silently overrode what you just typed would be a nasty thing to debug.
+- **Values are never logged** — the startup line reports variable _names_ only.
+- No `dotenv` dependency: the format is a dozen lines of parsing, this ships to a Pi, and a
+  bad line is skipped rather than thrown on so one typo cannot stop the server booting.
+- **The file is not part of the deploy.** `conan.json` does not ship it, so the key never
+  rides along in the sync — you create `~/deploy/.env` on the Pi once. It survives deploys
+  because `deploy.js` only passes `--delete` for entries that _own_ their remote folder, and
+  the deploy root is shared (`deploy.js:693`). Nothing else protects it, so if that gating
+  ever changes, this file is what gets wiped.
 
 ## Build & run
 
